@@ -25,6 +25,7 @@ from deckdepot.appman_ids import (
     validate_source_id,
 )
 from deckdepot.appman_settings import load_settings
+from deckdepot.diagnostics import log_info
 from deckdepot.errors import EngineError
 from deckdepot.flatpak_engine import sanitized_host_env
 
@@ -278,6 +279,7 @@ async def run_appman(
     proc = await asyncio.create_subprocess_exec(
         path,
         *args,
+        stdin=asyncio.subprocess.DEVNULL,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
         env=env,
@@ -782,9 +784,14 @@ async def spawn_mutation(
     path = require_binary()
     args = mutation_argv(operation, app_id, source_id)
     env = appman_env()
+    log_info(
+        "appman spawn argv=%s stdin=DEVNULL home=%s path=%s"
+        % ([path, *args], env.get("HOME"), env.get("PATH"))
+    )
     return await asyncio.create_subprocess_exec(
         path,
         *args,
+        stdin=asyncio.subprocess.DEVNULL,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
         env=env,

@@ -45,10 +45,19 @@ TASK_EVENT_NAME = "deckdepot:task-event"
 CANCEL_GRACE_SEC = 8
 STATUS_EMIT_INTERVAL_SEC = 0.4
 ACTIVE_PHASES = {"queued", "starting", "running", "cancelling"}
+PUMP_CHUNK_SIZE = 4096
+PUMP_STATUS_TAIL = 8192
+PUMP_DRAIN_TIMEOUT_SEC = 3
 
 
 def _now_ms() -> int:
     return int(time.time() * 1000)
+
+
+def _status_from_bytes(data: bytes) -> str:
+    text = data.decode("utf-8", "replace").replace("\r\n", "\n").replace("\r", "\n")
+    parts = [part.strip() for part in text.split("\n") if part.strip()]
+    return parts[-1][:200] if parts else ""
 
 
 class TaskManager:
@@ -319,25 +328,9 @@ class TaskManager:
                     exit_code=exit_code,
                 )
             elif task.get("provider") == "appman":
-                succeeded, detail = interpret_appman_result(
-                    task["operation"], stdout, stderr
+                await self._finish_appman_task(
+                    task, stdout, stderr, exit_code, timeout
                 )
-                if succeeded:
-                    self._set_phase(
-                        task,
-                        "completed",
-                        status_text="completed",
-                        exit_code=exit_code,
-                    )
-                else:
-                    self._set_phase(
-                        task,
-                        "failed",
-                        status_text="failed",
-                        exit_code=exit_code,
-                        error_message=redact_text(detail or "AppMan command failed"),
-                    )
-                    task["errorCode"] = "PROCESS_FAILED"
             elif exit_code == 0:
                 verified, verify_error = await _verify_flatpak_result(task)
                 if verified:
@@ -426,6 +419,94 @@ class TaskManager:
             )
             await self._emit(task)
 
+    async def _finish_appman_task(
+        self,
+        task: dict[str, Any],
+        stdout: str,
+        stderr: str,
+        exit_code: int | None,
+        timeout: int,
+    ) -> None:
+        marker_ok, detail = interpret_appman_result(task["operation"], stdout, stderr)
+        output = redact_text(detail or f"{stderr}\n{stdout}".strip() or "AppMan command failed")
+        if task.get("timedOut"):
+            self._set_phase(
+                task,
+                "failed",
+                status_text="timed out",
+                exit_code=exit_code,
+                error_message=f"AppMan {task['operation']} timed out after {timeout}s. {output}",
+            )
+            task["errorCode"] = "PROCESS_TIMEOUT"
+            return
+        verified, verify_error = await _verify_appman_result(task)
+        operation = task["operation"]
+        # AppMan 10.5-1 often prints INSTALLATION ABORTED after a wget2/curl
+        # checksum warning even when the app is present in `appman -f`. Inventory
+        # is the success contract; abort text is only used when the app is absent.
+        if operation == "install":
+            if verified:
+                self._set_phase(
+                    task,
+                    "completed",
+                    status_text="completed",
+                    exit_code=exit_code,
+                )
+                return
+            self._set_phase(
+                task,
+                "failed",
+                status_text="failed",
+                exit_code=exit_code,
+                error_message=redact_text(
+                    verify_error
+                    or output
+                    or "AppMan finished but the app was not in the installed inventory."
+                ),
+            )
+            task["errorCode"] = "STATE_UNCHANGED" if marker_ok else "PROCESS_FAILED"
+            return
+        if operation == "uninstall":
+            if verified:
+                self._set_phase(
+                    task,
+                    "completed",
+                    status_text="completed",
+                    exit_code=exit_code,
+                )
+                return
+            self._set_phase(
+                task,
+                "failed",
+                status_text="failed",
+                exit_code=exit_code,
+                error_message=redact_text(
+                    verify_error
+                    or output
+                    or "AppMan finished but the app is still installed."
+                ),
+            )
+            task["errorCode"] = "STATE_UNCHANGED" if marker_ok else "PROCESS_FAILED"
+            return
+        if marker_ok and verified:
+            self._set_phase(
+                task,
+                "completed",
+                status_text="completed",
+                exit_code=exit_code,
+            )
+            return
+        self._set_phase(
+            task,
+            "failed",
+            status_text="failed",
+            exit_code=exit_code,
+            error_message=redact_text(
+                verify_error or output or "AppMan command failed"
+            ),
+        )
+        task["errorCode"] = "STATE_UNCHANGED" if marker_ok else "PROCESS_FAILED"
+
     async def _wait(
         self,
         proc: asyncio.subprocess.Process,
@@ -435,20 +516,24 @@ class TaskManager:
         stdout_chunks: list[bytes] = []
         stderr_chunks: list[bytes] = []
         last_emit = 0.0
+        started = time.monotonic()
 
         async def _pump(stream: asyncio.StreamReader | None, store: list[bytes]) -> None:
             nonlocal last_emit
             if stream is None:
                 return
+            pending = b""
             while True:
-                line = await stream.readline()
-                if not line:
+                # Chunk reads, not readline(): curl/wget progress uses `\r` with
+                # no newline and will fill the pipe until the parent drains it.
+                chunk = await stream.read(PUMP_CHUNK_SIZE)
+                if not chunk:
                     return
-                store.append(line)
-                text = line.decode("utf-8", "replace").strip()
+                store.append(chunk)
+                pending = (pending + chunk)[-PUMP_STATUS_TAIL:]
+                text = _status_from_bytes(pending)
                 if not text or task["phase"] not in {"running", "cancelling"}:
                     continue
-                # Phase/status line only. Do not parse percentages.
                 task["statusText"] = text[:200]
                 task["updatedAtMs"] = _now_ms()
                 now = time.monotonic()
@@ -481,9 +566,26 @@ class TaskManager:
                 await asyncio.wait_for(proc.wait(), timeout=min(0.5, remaining))
             except asyncio.TimeoutError:
                 continue
-        await asyncio.gather(*pumpers, return_exceptions=True)
+        _done, pending_pumps = await asyncio.wait(
+            pumpers, timeout=PUMP_DRAIN_TIMEOUT_SEC
+        )
+        for pumper in pending_pumps:
+            pumper.cancel()
+        if pending_pumps:
+            await asyncio.gather(*pending_pumps, return_exceptions=True)
         stdout = b"".join(stdout_chunks).decode("utf-8", "replace")
         stderr = b"".join(stderr_chunks).decode("utf-8", "replace")
+        log_info(
+            "task %s wait rc=%s elapsed=%.1fs timedOut=%s stdout=%d stderr=%d"
+            % (
+                task.get("taskId"),
+                proc.returncode,
+                time.monotonic() - started,
+                bool(task.get("timedOut")),
+                len(stdout),
+                len(stderr),
+            )
+        )
         return stdout, stderr, proc.returncode
 
     async def _kill_group(
@@ -534,6 +636,40 @@ async def _list_scope(scope: str) -> dict[str, Any]:
     if scope == "system":
         return await list_system_installed()
     return await list_installed()
+
+
+async def _verify_appman_result(task: dict[str, Any]) -> tuple[bool, str | None]:
+    operation = task.get("operation")
+    try:
+        installed = await list_appman_installed()
+    except EngineError as exc:
+        return False, exc.message
+    if operation == "update_all":
+        return True, None
+    source_id = task.get("sourceId") or "am"
+    present = any(
+        row["appId"] == task["appId"] and row.get("sourceId") == source_id
+        for row in installed["apps"]
+    )
+    if operation == "install":
+        if present:
+            return True, None
+        return False, (
+            f"{task['appId']} was not found in the AppMan inventory after install."
+        )
+    if operation == "uninstall":
+        if not present:
+            return True, None
+        return False, (
+            f"{task['appId']} is still present in the AppMan inventory after uninstall."
+        )
+    if operation == "update":
+        if present:
+            return True, None
+        return False, (
+            f"{task['appId']} is no longer installed after AppMan update."
+        )
+    return True, None
 
 
 async def _verify_flatpak_result(task: dict[str, Any]) -> tuple[bool, str | None]:
