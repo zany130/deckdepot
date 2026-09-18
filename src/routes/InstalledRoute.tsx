@@ -5,7 +5,7 @@ import {
   Marquee,
   NavEntryPositionPreferences,
 } from "@decky/ui";
-import { useState, type ReactElement } from "react";
+import { useEffect, useState, type ReactElement } from "react";
 import { useFlatpakInventory } from "../api/useFlatpakInventory";
 import { useSteamShortcuts } from "../api/useSteamShortcuts";
 import SegmentedControl from "../components/SegmentedControl";
@@ -39,57 +39,80 @@ export default function InstalledRoute(): ReactElement {
       : current === "system" ? "user" : "system"));
   };
 
-  const uninstall = state.mutationsDisabled
-    ? undefined
-    : async (app: AppSummary) => {
-        if (app.provider === "appman") {
-          const confirmed = await confirmAction(
-            `Uninstall ${app.name}?`,
-            `Remove the AppMan-managed copy of ${app.appId}? This uses AppMan's no-prompt remove after you confirm here.`
-          );
-          if (!confirmed) {
-            return;
-          }
-          await state.uninstallAppman(app.appId, app.sourceId || "am");
-          return;
-        }
-        const confirmed = await confirmAction(
-          `Uninstall ${app.name}?`,
-          `Uninstall the user-scoped copy of ${app.appId}? This does not remove application data or any system-wide install.`
-        );
-        if (!confirmed) {
-          return;
-        }
-        await state.uninstallUser(app.appId);
-      };
+  const showScopeToggle = state.userScopeRelevant && state.systemScopeRelevant;
 
-  const updateApp = state.mutationsDisabled
-    ? undefined
-    : async (app: AppSummary) => {
-        if (app.provider === "appman") {
-          const confirmed = await confirmAction(
-            `Update ${app.name}?`,
-            `Ask AppMan to run the updater for ${app.appId}. AppMan does not say in advance whether a newer version exists.`
-          );
-          if (!confirmed) {
-            return;
-          }
-          await state.updateAppman(app.appId, app.sourceId || "am");
-          return;
-        }
-        const update = state.updates.find((item) => item.appId === app.appId);
-        if (!update) {
-          return;
-        }
-        const confirmed = await confirmAction(
-          `Update ${app.name}?`,
-          `Update the user-scoped copy of ${app.appId}? Related runtimes may also be pulled.`
-        );
-        if (!confirmed) {
-          return;
-        }
-        await state.updateUser(app.appId, update.ref);
-      };
+  useEffect(() => {
+    if (showScopeToggle) {
+      return;
+    }
+    setFlatpakScope(state.systemScopeRelevant && !state.userScopeRelevant ? "system" : "user");
+  }, [showScopeToggle, state.systemScopeRelevant, state.userScopeRelevant]);
+
+  const uninstall = async (app: AppSummary) => {
+    if (app.provider === "appman") {
+      if (state.appmanMutationsDisabled) {
+        return;
+      }
+      const confirmed = await confirmAction(
+        `Uninstall ${app.name}?`,
+        `Remove the AppMan-managed copy of ${app.appId}? This uses AppMan's no-prompt remove after you confirm here.`
+      );
+      if (!confirmed) {
+        return;
+      }
+      await state.uninstallAppman(app.appId, app.sourceId || "am");
+      return;
+    }
+    const scope = app.installationScope === "system" ? "system" : "user";
+    if (scope === "system" ? state.systemMutationsDisabled : state.userMutationsDisabled) {
+      return;
+    }
+    const confirmed = await confirmAction(
+      `Uninstall ${app.name}?`,
+      `Uninstall the ${scope}-scoped copy of ${app.appId}? This does not remove application data or any ${
+        scope === "user" ? "system" : "user"
+      }-scoped install.`
+    );
+    if (!confirmed) {
+      return;
+    }
+    await state.uninstallFlatpak(app.appId, scope);
+  };
+
+  const updateApp = async (app: AppSummary) => {
+    if (app.provider === "appman") {
+      if (state.appmanMutationsDisabled) {
+        return;
+      }
+      const confirmed = await confirmAction(
+        `Update ${app.name}?`,
+        `Ask AppMan to run the updater for ${app.appId}. AppMan does not say in advance whether a newer version exists.`
+      );
+      if (!confirmed) {
+        return;
+      }
+      await state.updateAppman(app.appId, app.sourceId || "am");
+      return;
+    }
+    const scope = app.installationScope === "system" ? "system" : "user";
+    if (scope === "system" ? state.systemMutationsDisabled : state.userMutationsDisabled) {
+      return;
+    }
+    const update = (
+      scope === "system" ? state.systemUpdates : state.updates
+    ).find((item) => item.appId === app.appId);
+    if (!update) {
+      return;
+    }
+    const confirmed = await confirmAction(
+      `Update ${app.name}?`,
+      `Update the ${scope}-scoped copy of ${app.appId}? Related runtimes may also be pulled.`
+    );
+    if (!confirmed) {
+      return;
+    }
+    await state.updateFlatpak(app.appId, update.ref, scope);
+  };
 
   const flatpakUserApps = state.inventory.userApps.filter((app) => app.provider !== "appman");
   const appmanApps = state.inventory.userApps.filter((app) => app.provider === "appman");
@@ -121,7 +144,7 @@ export default function InstalledRoute(): ReactElement {
         ]}
         onChange={(id) => setProvider(id as ProviderId)}
       />
-      {provider === "flatpak" ? (
+      {provider === "flatpak" && showScopeToggle ? (
         <SegmentedControl
           value={flatpakScope}
           options={[
@@ -139,7 +162,7 @@ export default function InstalledRoute(): ReactElement {
             empty="No AppMan apps found."
             apps={appmanApps}
             restoreAppId={restoreAppmanId}
-            mutationsDisabled={state.mutationsDisabled}
+            mutationsDisabled={state.appmanMutationsDisabled}
             busy={state.busy}
             task={state.task}
             onRefresh={() => void state.refresh()}
@@ -157,8 +180,8 @@ export default function InstalledRoute(): ReactElement {
             empty="No user-scoped Flatpak apps found."
             apps={flatpakUserApps}
             restoreAppId={restoreUserId}
-            flathubMissing={state.flathubMissing}
-            mutationsDisabled={state.mutationsDisabled}
+            flathubMissing={!state.userRemotePresent}
+            mutationsDisabled={state.userMutationsDisabled}
             busy={state.busy}
             task={state.task}
             onEnableFlathub={() => void state.enableFlathub()}
@@ -169,7 +192,7 @@ export default function InstalledRoute(): ReactElement {
             updateAppIds={new Set(state.updates.map((item) => item.appId))}
             steam={steam}
             onFocusApp={setRestoreUserId}
-            onBumper={cycleScope}
+            onBumper={showScopeToggle ? cycleScope : undefined}
           />
         ) : (
           <InstalledPane
@@ -186,11 +209,24 @@ export default function InstalledRoute(): ReactElement {
             }
             apps={state.inventory.systemApps}
             restoreAppId={restoreSystemId}
-            notice="Installed system-wide. DeckDepot v1.0 does not manage system installations. You can still add an already-installed system Flatpak to Steam with --system launch options."
+            notice={
+              state.systemMutationsAvailable
+                ? undefined
+                : `System-wide Flatpaks stay visible. System install/update/remove is unavailable${
+                    state.scopeUnavailableReason ? `: ${state.scopeUnavailableReason}` : "."
+                  }`
+            }
             onRefresh={() => void state.refresh()}
+            onCancelTask={() => void state.cancelCurrent()}
+            onUninstall={uninstall}
+            onUpdate={updateApp}
+            updateAppIds={new Set(state.systemUpdates.map((item) => item.appId))}
+            mutationsDisabled={state.systemMutationsDisabled}
+            busy={state.busy}
+            task={state.task}
             steam={steam}
             onFocusApp={setRestoreSystemId}
-            onBumper={cycleScope}
+            onBumper={showScopeToggle ? cycleScope : undefined}
           />
         )}
       </div>
@@ -242,6 +278,13 @@ function InstalledPane({
   onBumper?: (direction: -1 | 1) => void;
 }): ReactElement {
   const taskActive = isActivePhase(task?.phase);
+  const taskForScope =
+    task &&
+    (task.provider === "appman"
+      ? scope === "user"
+      : (task.installationScope || "user") === scope)
+      ? task
+      : null;
   const showUserChrome = scope === "user";
 
   return (
@@ -333,18 +376,18 @@ function InstalledPane({
         </div>
       ) : null}
 
-      {showUserChrome && task ? (
+      {taskForScope ? (
         <div style={{ marginBottom: "12px" }}>
           <div style={{ opacity: 0.85, fontSize: "13px", marginBottom: taskActive ? "8px" : 0 }}>
-            {task.operation} {task.appId} · {task.phase}
-            {task.statusText ? ` · ${task.statusText}` : ""}
+            {taskForScope.operation} {taskForScope.appId} · {taskForScope.phase}
+            {taskForScope.statusText ? ` · ${taskForScope.statusText}` : ""}
           </div>
-          {task.errorMessage ? (
-            <div style={{ color: "#ff8a8a", marginBottom: "8px" }}>{task.errorMessage}</div>
+          {taskForScope.errorMessage ? (
+            <div style={{ color: "#ff8a8a", marginBottom: "8px" }}>{taskForScope.errorMessage}</div>
           ) : null}
           {taskActive && onCancelTask ? (
             <DialogButton
-              disabled={task.phase === "cancelling"}
+              disabled={taskForScope.phase === "cancelling"}
               onClick={onCancelTask}
               style={{ width: "220px" }}
             >
@@ -371,6 +414,7 @@ function InstalledPane({
               key={catalogKey(app)}
               app={app}
               system={scope === "system"}
+              mutationsDisabled={Boolean(mutationsDisabled)}
               preferredFocus={restoreAppId === catalogKey(app)}
               onUninstall={onUninstall}
               onUpdate={
@@ -392,6 +436,7 @@ function InstalledPane({
 function InstalledRow({
   app,
   system,
+  mutationsDisabled,
   preferredFocus,
   onUninstall,
   onUpdate,
@@ -400,6 +445,7 @@ function InstalledRow({
 }: {
   app: AppSummary;
   system?: boolean;
+  mutationsDisabled?: boolean;
   preferredFocus?: boolean;
   onUninstall?: (app: AppSummary) => void;
   onUpdate?: (app: AppSummary) => void;
@@ -408,11 +454,12 @@ function InstalledRow({
 }): ReactElement {
   const [focused, setFocused] = useState(false);
   const scope = system ? "system" : "user";
+  const canMutate = Boolean(onUninstall || onUpdate) && !mutationsDisabled;
   return (
     <Focusable
       preferredFocus={preferredFocus}
       onOKActionDescription={
-        system ? "Select" : onUpdate ? "Update" : onUninstall ? "Uninstall" : "Select"
+        canMutate ? (onUpdate ? "Update" : onUninstall ? "Uninstall" : "Select") : "Select"
       }
       onGamepadFocus={() => {
         setFocused(true);
@@ -460,17 +507,25 @@ function InstalledRow({
             compact
           />
         )}
-        {system ? (
-          <div style={{ opacity: 0.7, fontSize: "12px", alignSelf: "center" }}>Read-only install</div>
+        {system && mutationsDisabled ? (
+          <div style={{ opacity: 0.7, fontSize: "12px", alignSelf: "center" }}>Read-only</div>
         ) : (
           <>
             {onUpdate ? (
-              <DialogButton onClick={() => onUpdate(app)} style={{ width: "120px" }}>
+              <DialogButton
+                disabled={mutationsDisabled}
+                onClick={() => onUpdate(app)}
+                style={{ width: "120px" }}
+              >
                 Update
               </DialogButton>
             ) : null}
             {onUninstall ? (
-              <DialogButton onClick={() => onUninstall(app)} style={{ width: "140px" }}>
+              <DialogButton
+                disabled={mutationsDisabled}
+                onClick={() => onUninstall(app)}
+                style={{ width: "140px" }}
+              >
                 Uninstall
               </DialogButton>
             ) : null}

@@ -10,7 +10,7 @@ import { AppInstallStatus, activeTaskForApp } from "../api/installedInventory";
 import { useSteamShortcuts } from "../api/useSteamShortcuts";
 import SteamActions from "./SteamActions";
 import { CatalogAppDetails, CatalogFailure } from "../types/catalog";
-import { TaskProgress } from "../types/flatpak";
+import { InstallationScope, TaskProgress } from "../types/flatpak";
 import { consumeGamepadEvent, embeddedPageStyle, focusOutline, screenshotRowStyle } from "./storeLayout";
 
 export default function AppDetailsView({
@@ -21,6 +21,11 @@ export default function AppDetailsView({
   onRetry,
   installStatus,
   flathubMissing,
+  resolvedInstallScope,
+  scopeUnavailableReason,
+  systemMutationsAvailable,
+  userMutationsDisabled,
+  systemMutationsDisabled,
   mutationsDisabled,
   task,
   actionError,
@@ -38,12 +43,17 @@ export default function AppDetailsView({
   onRetry: () => void;
   installStatus?: AppInstallStatus;
   flathubMissing?: boolean;
+  resolvedInstallScope?: InstallationScope | null;
+  scopeUnavailableReason?: string | null;
+  systemMutationsAvailable?: boolean;
+  userMutationsDisabled?: boolean;
+  systemMutationsDisabled?: boolean;
   mutationsDisabled?: boolean;
   task?: TaskProgress | null;
   actionError?: string | null;
   onInstall?: () => void;
-  onUninstall?: () => void;
-  onUpdate?: () => void;
+  onUninstall?: (scope: InstallationScope) => void;
+  onUpdate?: (scope: InstallationScope) => void;
   onEnableFlathub?: () => void;
   onCancelTask?: () => void;
   steam?: ReturnType<typeof useSteamShortcuts>;
@@ -95,7 +105,11 @@ export default function AppDetailsView({
           app={app}
           installStatus={installStatus}
           flathubMissing={flathubMissing}
-          mutationsDisabled={mutationsDisabled}
+          resolvedInstallScope={resolvedInstallScope}
+          scopeUnavailableReason={scopeUnavailableReason}
+          systemMutationsAvailable={systemMutationsAvailable}
+          userMutationsDisabled={userMutationsDisabled ?? mutationsDisabled}
+          systemMutationsDisabled={systemMutationsDisabled ?? true}
           appTask={appTask}
           actionError={actionError}
           onInstall={onInstall}
@@ -114,7 +128,11 @@ function DetailsBody({
   app,
   installStatus,
   flathubMissing,
-  mutationsDisabled,
+  resolvedInstallScope,
+  scopeUnavailableReason,
+  systemMutationsAvailable,
+  userMutationsDisabled,
+  systemMutationsDisabled,
   appTask,
   actionError,
   onInstall,
@@ -127,12 +145,16 @@ function DetailsBody({
   app: CatalogAppDetails;
   installStatus?: AppInstallStatus;
   flathubMissing?: boolean;
-  mutationsDisabled?: boolean;
+  resolvedInstallScope?: InstallationScope | null;
+  scopeUnavailableReason?: string | null;
+  systemMutationsAvailable?: boolean;
+  userMutationsDisabled?: boolean;
+  systemMutationsDisabled?: boolean;
   appTask?: TaskProgress | null;
   actionError?: string | null;
   onInstall?: () => void;
-  onUninstall?: () => void;
-  onUpdate?: () => void;
+  onUninstall?: (scope: InstallationScope) => void;
+  onUpdate?: (scope: InstallationScope) => void;
   onEnableFlathub?: () => void;
   onCancelTask?: () => void;
   steam?: ReturnType<typeof useSteamShortcuts>;
@@ -140,7 +162,15 @@ function DetailsBody({
   const userInstalled = Boolean(installStatus?.userInstalled);
   const systemInstalled = Boolean(installStatus?.systemInstalled);
   const userVersion = installStatus?.userApp?.installedVersion;
-  const updateAvailable = Boolean(installStatus?.updates.length);
+  const systemVersion = installStatus?.systemApp?.installedVersion;
+  const userUpdateAvailable = Boolean(installStatus?.userUpdates.length);
+  const systemUpdateAvailable = Boolean(installStatus?.systemUpdates.length);
+  const alreadyInResolvedScope =
+    resolvedInstallScope === "user"
+      ? userInstalled
+      : resolvedInstallScope === "system"
+        ? systemInstalled
+        : true;
 
   return (
     <>
@@ -169,14 +199,21 @@ function DetailsBody({
         userInstalled={userInstalled}
         systemInstalled={systemInstalled}
         userVersion={userVersion}
-        updateAvailable={app.provider === "appman" ? false : updateAvailable}
+        systemVersion={systemVersion}
+        userUpdateAvailable={app.provider === "appman" ? false : userUpdateAvailable}
+        systemUpdateAvailable={app.provider === "appman" ? false : systemUpdateAvailable}
         updaterSupported={
           app.provider === "appman"
             ? Boolean(installStatus?.userApp?.hasUpdater)
             : false
         }
+        alreadyInResolvedScope={alreadyInResolvedScope}
+        resolvedInstallScope={app.provider === "appman" ? null : resolvedInstallScope}
+        scopeUnavailableReason={app.provider === "appman" ? null : scopeUnavailableReason}
         flathubMissing={app.provider === "appman" ? false : flathubMissing}
-        mutationsDisabled={mutationsDisabled}
+        systemMutationsAvailable={systemMutationsAvailable}
+        userMutationsDisabled={userMutationsDisabled}
+        systemMutationsDisabled={systemMutationsDisabled ?? true}
         appTask={appTask}
         actionError={actionError}
         onInstall={onInstall}
@@ -230,7 +267,7 @@ function DetailsBody({
       <section>
         <h2 style={sectionTitle}>About</h2>
         <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.45, opacity: 0.92 }}>
-          {app.descriptionText || "No description available."}
+          {aboutText(app)}
         </div>
       </section>
 
@@ -241,7 +278,8 @@ function DetailsBody({
             app.sourceLabel ? `Source: ${app.sourceLabel}` : null,
             app.amType ? `Format: ${app.amType}` : null,
             app.projectLicense ? `License: ${app.projectLicense}` : null,
-            userVersion ? `Installed version: ${userVersion}` : null,
+            userVersion ? `User version: ${userVersion}` : null,
+            systemVersion ? `System version: ${systemVersion}` : null,
             app.latestVersion ? `Release: ${app.latestVersion}` : null,
             app.launchableDesktopId ? `Launchable: ${app.launchableDesktopId}` : null,
             app.bundleRef ? `Bundle: ${app.bundleRef}` : null,
@@ -276,10 +314,17 @@ function InstallActions({
   userInstalled,
   systemInstalled,
   userVersion,
-  updateAvailable,
+  systemVersion,
+  userUpdateAvailable,
+  systemUpdateAvailable,
   updaterSupported,
+  alreadyInResolvedScope,
+  resolvedInstallScope,
+  scopeUnavailableReason,
   flathubMissing,
-  mutationsDisabled,
+  systemMutationsAvailable,
+  userMutationsDisabled,
+  systemMutationsDisabled,
   appTask,
   actionError,
   onInstall,
@@ -293,44 +338,61 @@ function InstallActions({
   userInstalled: boolean;
   systemInstalled: boolean;
   userVersion?: string | null;
-  updateAvailable?: boolean;
+  systemVersion?: string | null;
+  userUpdateAvailable?: boolean;
+  systemUpdateAvailable?: boolean;
   updaterSupported?: boolean;
+  alreadyInResolvedScope?: boolean;
+  resolvedInstallScope?: InstallationScope | null;
+  scopeUnavailableReason?: string | null;
   flathubMissing?: boolean;
-  mutationsDisabled?: boolean;
+  systemMutationsAvailable?: boolean;
+  userMutationsDisabled?: boolean;
+  systemMutationsDisabled?: boolean;
   appTask?: TaskProgress | null;
   actionError?: string | null;
   onInstall?: () => void;
-  onUninstall?: () => void;
-  onUpdate?: () => void;
+  onUninstall?: (scope: InstallationScope) => void;
+  onUpdate?: (scope: InstallationScope) => void;
   onEnableFlathub?: () => void;
   onCancelTask?: () => void;
 }): ReactElement {
+  const showInstall =
+    provider !== "appman"
+      ? Boolean(onInstall) && Boolean(resolvedInstallScope) && !alreadyInResolvedScope && !flathubMissing
+      : Boolean(onInstall) && !userInstalled;
   return (
     <section>
       <h2 style={sectionTitle}>Install</h2>
       {systemInstalled ? (
         <div style={{ opacity: 0.85, marginBottom: "10px" }}>
-          Installed system-wide. DeckDepot v1.0 does not manage system installations.
-          {userInstalled
-            ? " A separate user-scoped copy is also installed."
-            : " You can still install a user-scoped copy."}
+          Installed system-wide
+          {systemVersion ? ` · ${systemVersion}` : " · Version unavailable"}
+          {systemUpdateAvailable ? " · update available" : ""}.
+          {!systemMutationsAvailable
+            ? " System management is currently unavailable."
+            : ""}
         </div>
       ) : null}
       {userInstalled ? (
         <div style={{ opacity: 0.85, marginBottom: "10px" }}>
           Installed for this user
           {userVersion ? ` · ${userVersion}` : " · Version unavailable"}
-          {updateAvailable ? " · update available" : updaterSupported ? " · updater supported" : ""}.
+          {userUpdateAvailable ? " · update available" : updaterSupported ? " · updater supported" : ""}.
         </div>
+      ) : null}
+      {provider !== "appman" && !resolvedInstallScope && scopeUnavailableReason ? (
+        <div style={{ opacity: 0.85, marginBottom: "10px" }}>{scopeUnavailableReason}</div>
       ) : null}
       {flathubMissing && provider !== "appman" ? (
         <div style={{ opacity: 0.85, marginBottom: "10px" }}>
-          A user-scoped Flathub remote is required before installing.
+          A user-scoped Flathub remote is required before installing. DeckDepot will
+          not create a missing remote unless you enable it here.
         </div>
       ) : null}
       {appTask ? (
         <div style={{ opacity: 0.9, marginBottom: "10px" }}>
-          {appTask.operation} · {appTask.phase}
+          {appTask.operation} · {appTask.installationScope || "user"} · {appTask.phase}
           {appTask.statusText ? ` · ${appTask.statusText}` : ""}
           {" · progress is phase-only, not a percentage"}
         </div>
@@ -340,23 +402,50 @@ function InstallActions({
       ) : null}
       <Focusable flow-children="row" style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
         {flathubMissing && onEnableFlathub ? (
-          <DialogButton disabled={mutationsDisabled} onClick={onEnableFlathub}>
+          <DialogButton disabled={userMutationsDisabled} onClick={onEnableFlathub}>
             Enable Flathub
           </DialogButton>
         ) : null}
-        {!userInstalled && !flathubMissing && onInstall ? (
-          <DialogButton disabled={mutationsDisabled} onClick={onInstall}>
-            Install
+        {showInstall ? (
+          <DialogButton
+            disabled={
+              resolvedInstallScope === "system" ? systemMutationsDisabled : userMutationsDisabled
+            }
+            onClick={onInstall}
+          >
+            {resolvedInstallScope ? `Install (${resolvedInstallScope})` : "Install"}
           </DialogButton>
         ) : null}
-        {userInstalled && (updateAvailable || updaterSupported) && onUpdate ? (
-          <DialogButton disabled={mutationsDisabled} onClick={onUpdate}>
-            Update
+        {userInstalled && (userUpdateAvailable || updaterSupported) && onUpdate ? (
+          <DialogButton
+            disabled={userMutationsDisabled}
+            onClick={() => onUpdate("user")}
+          >
+            Update user
+          </DialogButton>
+        ) : null}
+        {systemInstalled && systemUpdateAvailable && onUpdate ? (
+          <DialogButton
+            disabled={systemMutationsDisabled}
+            onClick={() => onUpdate("system")}
+          >
+            Update system
           </DialogButton>
         ) : null}
         {userInstalled && onUninstall ? (
-          <DialogButton disabled={mutationsDisabled} onClick={onUninstall}>
+          <DialogButton
+            disabled={userMutationsDisabled}
+            onClick={() => onUninstall("user")}
+          >
             Uninstall {name}
+          </DialogButton>
+        ) : null}
+        {systemInstalled && onUninstall ? (
+          <DialogButton
+            disabled={systemMutationsDisabled}
+            onClick={() => onUninstall("system")}
+          >
+            Uninstall system
           </DialogButton>
         ) : null}
         {appTask && onCancelTask ? (
@@ -429,6 +518,17 @@ function ScreenshotTile({
       ) : null}
     </Focusable>
   );
+}
+
+function aboutText(app: CatalogAppDetails): string {
+  if (app.provider === "appman") {
+    return (
+      app.descriptionText?.trim() ||
+      app.summary?.trim() ||
+      "No description available."
+    );
+  }
+  return app.descriptionText || "No description available.";
 }
 
 const sectionTitle = {

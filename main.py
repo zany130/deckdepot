@@ -44,21 +44,42 @@ class Plugin:
     async def get_tasks(self) -> dict:
         return await self.flatpak.get_tasks()
 
-    async def start_install(self, app_id: str) -> dict:
-        log_info(f"RPC start_install app_id={app_id}")
-        return await self.flatpak.start_install(app_id)
+    async def start_install(self, app_id: str, installation_scope: str = "") -> dict:
+        log_info(
+            f"RPC start_install app_id={app_id} scope={installation_scope or 'auto'}"
+        )
+        return await self.flatpak.start_install(app_id, installation_scope)
 
-    async def start_update(self, app_id: str, ref: str = "") -> dict:
-        log_info(f"RPC start_update app_id={app_id} ref={ref}")
-        return await self.flatpak.start_update(app_id, ref)
+    async def start_update(
+        self, app_id: str, ref: str = "", installation_scope: str = ""
+    ) -> dict:
+        log_info(
+            f"RPC start_update app_id={app_id} ref={ref} scope={installation_scope}"
+        )
+        return await self.flatpak.start_update(app_id, ref, installation_scope)
 
-    async def start_update_all(self) -> dict:
-        log_info("RPC start_update_all")
-        return await self.flatpak.start_update_all()
+    async def start_update_all(self, installation_scope: str = "user") -> dict:
+        log_info(f"RPC start_update_all scope={installation_scope}")
+        return await self.flatpak.start_update_all(installation_scope)
 
-    async def start_uninstall(self, app_id: str) -> dict:
-        log_info(f"RPC start_uninstall app_id={app_id}")
-        return await self.flatpak.start_uninstall(app_id)
+    async def start_uninstall(self, app_id: str, installation_scope: str = "") -> dict:
+        log_info(f"RPC start_uninstall app_id={app_id} scope={installation_scope}")
+        return await self.flatpak.start_uninstall(app_id, installation_scope)
+
+    async def get_system_updates(self) -> dict:
+        log_info("RPC get_system_updates")
+        return await self.flatpak.get_system_updates()
+
+    async def get_flatpak_scope_status(self) -> dict:
+        return await self.flatpak.get_flatpak_scope_status()
+
+    async def set_flatpak_install_scope(self, scope: str) -> dict:
+        log_info(f"RPC set_flatpak_install_scope scope={scope}")
+        return await self.flatpak.set_flatpak_install_scope(scope)
+
+    async def probe_session_bridge(self) -> dict:
+        log_info("RPC probe_session_bridge")
+        return await self.flatpak.probe_session_bridge()
 
     async def start_appman_install(self, app_id: str, source_id: str = "am") -> dict:
         log_info(f"RPC start_appman_install app_id={app_id} source={source_id}")
@@ -162,6 +183,12 @@ class Plugin:
                 getattr(decky, "DECKY_PLUGIN_LOG", None),
             )
         )
+        try:
+            import asyncio
+
+            asyncio.create_task(self.flatpak.probe_session_bridge())
+        except Exception:
+            pass
 
     async def _unload(self) -> None:
         log_info(f"backend unloading instance={self.instance_id}")

@@ -39,7 +39,10 @@ from deckdepot.appman_engine import (
 )
 from deckdepot.appman_settings import save_search_scope as save_appman_search_scope
 from deckdepot.plugin_files import remove_plugin_owned_files
-from deckdepot.update_discovery import list_user_updates
+from deckdepot.update_discovery import list_updates_for_scope, list_user_updates
+from deckdepot.flatpak_settings import save_install_scope
+from deckdepot.flatpak_scope import collect_scope_status
+from deckdepot.session_bridge import probe_capability
 
 
 async def await_engine(coro: Any) -> dict[str, Any]:
@@ -72,6 +75,28 @@ class FlatpakService:
     async def get_user_updates(self) -> dict[str, Any]:
         return await await_engine(list_user_updates())
 
+    async def get_system_updates(self) -> dict[str, Any]:
+        return await await_engine(list_updates_for_scope("system"))
+
+    async def get_flatpak_scope_status(self) -> dict[str, Any]:
+        try:
+            return await collect_scope_status()
+        except EngineError as exc:
+            return exc.to_dict()
+
+    async def set_flatpak_install_scope(self, scope: str) -> dict[str, Any]:
+        try:
+            save_install_scope(scope)
+        except EngineError as exc:
+            return exc.to_dict()
+        return await self.get_flatpak_scope_status()
+
+    async def probe_session_bridge(self) -> dict[str, Any]:
+        try:
+            return await probe_capability(force=True)
+        except EngineError as exc:
+            return exc.to_dict()
+
     async def check_flathub_remote(self) -> dict[str, Any]:
         return await await_engine(list_remotes())
 
@@ -91,17 +116,46 @@ class FlatpakService:
             "tasks": self.tasks.all_snapshots(),
         }
 
-    async def start_install(self, app_id: str) -> dict[str, Any]:
-        return await await_engine(self.tasks.start("install", app_id))
+    async def start_install(self, app_id: str, installation_scope: str = "") -> dict[str, Any]:
+        return await await_engine(
+            self.tasks.start(
+                "install",
+                app_id,
+                installation_scope=installation_scope or None,
+            )
+        )
 
-    async def start_update(self, app_id: str, ref: str = "") -> dict[str, Any]:
-        return await await_engine(self.tasks.start("update", app_id, ref=ref or None))
+    async def start_update(
+        self, app_id: str, ref: str = "", installation_scope: str = ""
+    ) -> dict[str, Any]:
+        return await await_engine(
+            self.tasks.start(
+                "update",
+                app_id,
+                ref=ref or None,
+                installation_scope=installation_scope or None,
+            )
+        )
 
-    async def start_update_all(self) -> dict[str, Any]:
-        return await await_engine(self.tasks.start("update_all", "all-user-apps"))
+    async def start_update_all(self, installation_scope: str = "user") -> dict[str, Any]:
+        return await await_engine(
+            self.tasks.start(
+                "update_all",
+                "all-user-apps",
+                installation_scope=installation_scope or "user",
+            )
+        )
 
-    async def start_uninstall(self, app_id: str) -> dict[str, Any]:
-        return await await_engine(self.tasks.start("uninstall", app_id))
+    async def start_uninstall(
+        self, app_id: str, installation_scope: str = ""
+    ) -> dict[str, Any]:
+        return await await_engine(
+            self.tasks.start(
+                "uninstall",
+                app_id,
+                installation_scope=installation_scope or None,
+            )
+        )
 
     async def start_appman_install(self, app_id: str, source_id: str = "am") -> dict[str, Any]:
         return await await_engine(

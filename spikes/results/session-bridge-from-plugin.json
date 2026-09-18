@@ -1,0 +1,216 @@
+{
+  "backend": {
+    "cgroup": "0::/system.slice/plugin_loader.service",
+    "env": {
+      "DBUS_SESSION_BUS_ADDRESS": null,
+      "DECKY_USER_HOME": "/home/zany130",
+      "HOME": "/home/zany130",
+      "LD_LIBRARY_PATH": "/tmp/_MEI001a26613B1Uj9",
+      "USER": "zany130",
+      "XDG_RUNTIME_DIR": null,
+      "XDG_SESSION_ID": null
+    },
+    "euid": 1000,
+    "gid": 1000,
+    "id": {
+      "argv": [
+        "id"
+      ],
+      "rc": 0,
+      "stderr": "",
+      "stdout": "uid=1000(zany130) gid=1000(zany130) groups=1000(zany130) context=system_u:system_r:unconfined_service_t:s0\n",
+      "timedOut": false
+    },
+    "label": "deckdepot-backend",
+    "loginuid": "4294967295",
+    "pid": 1733482,
+    "pkcheck": [
+      {
+        "actionId": "org.freedesktop.Flatpak.app-install",
+        "authenticationAgentRequired": true,
+        "authorization": "auth_admin",
+        "rc": 2,
+        "stderr": "Authorization requires authentication and -u wasn't passed.",
+        "stdout": "polkit\\56result=auth_admin"
+      },
+      {
+        "actionId": "org.freedesktop.Flatpak.app-update",
+        "authenticationAgentRequired": true,
+        "authorization": "auth_admin",
+        "rc": 2,
+        "stderr": "Authorization requires authentication and -u wasn't passed.",
+        "stdout": "polkit\\56result=auth_admin"
+      },
+      {
+        "actionId": "org.freedesktop.Flatpak.app-uninstall",
+        "authenticationAgentRequired": true,
+        "authorization": "auth_admin",
+        "rc": 2,
+        "stderr": "Authorization requires authentication and -u wasn't passed.",
+        "stdout": "polkit\\56result=auth_admin"
+      }
+    ],
+    "ppid": 1713801,
+    "sessionid": "4294967295",
+    "statusGroups": "Groups:\t ",
+    "uid": 1000
+  },
+  "childScript": "/home/zany130/homebrew/plugins/DeckDepot/py_modules/deckdepot/session_bridge_child.py",
+  "childScriptExists": true,
+  "collectedAtMs": 1789694684300,
+  "elapsedMs": 128,
+  "helper": {
+    "cgroup": "0::/user.slice/user-1000.slice/user@1000.service/app.slice/deckdepot-session-bridge-spike.service",
+    "env": {
+      "DBUS_SESSION_BUS_ADDRESS": "unix:path=/run/user/1000/bus",
+      "DESKTOP_SESSION": "plasma",
+      "DISPLAY": ":0",
+      "WAYLAND_DISPLAY": "wayland-0",
+      "XDG_CURRENT_DESKTOP": "KDE",
+      "XDG_RUNTIME_DIR": "/run/user/1000",
+      "XDG_SEAT": "seat0",
+      "XDG_SESSION_ID": "3",
+      "XDG_SESSION_TYPE": "wayland"
+    },
+    "euid": 1000,
+    "gid": 1000,
+    "hostname": "Bazzite",
+    "id": {
+      "argv": [
+        "id"
+      ],
+      "rc": 0,
+      "stderr": "",
+      "stdout": "uid=1000(zany130) gid=1000(zany130) groups=1000(zany130),10(wheel),18(dialout),104(input),956(ollama),959(libvirt),982(usershares),1001(docker) context=unconfined_u:unconfined_r:unconfined_t:s0-s0:c0.c1023"
+    },
+    "kind": "session-bridge-child",
+    "loginuid": "1000",
+    "pid": 1733504,
+    "pkcheck": [
+      {
+        "actionId": "org.freedesktop.Flatpak.app-install",
+        "authenticationAgentRequired": false,
+        "authorization": "yes",
+        "rc": 0,
+        "stderr": "",
+        "stdout": "polkit\\56result=yes"
+      },
+      {
+        "actionId": "org.freedesktop.Flatpak.app-update",
+        "authenticationAgentRequired": false,
+        "authorization": "yes",
+        "rc": 0,
+        "stderr": "",
+        "stdout": ""
+      },
+      {
+        "actionId": "org.freedesktop.Flatpak.app-uninstall",
+        "authenticationAgentRequired": false,
+        "authorization": "yes",
+        "rc": 0,
+        "stderr": "",
+        "stdout": "polkit\\56result=yes"
+      }
+    ],
+    "ppid": 2315,
+    "session": {
+      "loginctl": {
+        "argv": [
+          "loginctl",
+          "show-session",
+          "1",
+          "-p",
+          "Id",
+          "-p",
+          "Seat",
+          "-p",
+          "Active",
+          "-p",
+          "Remote",
+          "-p",
+          "Type",
+          "-p",
+          "Class",
+          "-p",
+          "Desktop",
+          "-p",
+          "State",
+          "-p",
+          "TTY"
+        ],
+        "rc": 0,
+        "stderr": "",
+        "stdout": "Id=1\nSeat=\nTTY=\nRemote=no\nDesktop=\nType=unspecified\nClass=manager\nActive=yes\nState=active"
+      },
+      "sessionid": "1"
+    },
+    "sessionBusSocketExists": true,
+    "statusGroups": "Groups:\t10 18 104 956 959 982 1000 1001 ",
+    "uid": 1000
+  },
+  "kind": "session-bridge-from-plugin",
+  "loginctlSessions": {
+    "argv": [
+      "loginctl",
+      "list-sessions",
+      "--no-pager"
+    ],
+    "rc": 1,
+    "stderr": "loginctl: /tmp/_MEI001a26613B1Uj9/libcrypto.so.3: version `OPENSSL_3.4.0' not found (required by /usr/lib64/systemd/libsystemd-shared-259.8-1.fc44.so)\n",
+    "stdout": "",
+    "timedOut": false
+  },
+  "loginctlUser": {
+    "argv": [
+      "loginctl",
+      "show-user",
+      "1000",
+      "-p",
+      "Linger",
+      "-p",
+      "State",
+      "-p",
+      "Sessions"
+    ],
+    "rc": 1,
+    "stderr": "loginctl: /tmp/_MEI001a26613B1Uj9/libcrypto.so.3: version `OPENSSL_3.4.0' not found (required by /usr/lib64/systemd/libsystemd-shared-259.8-1.fc44.so)\n",
+    "stdout": "",
+    "timedOut": false
+  },
+  "pluginDir": "/home/zany130/homebrew/plugins/DeckDepot",
+  "systemdRun": {
+    "rc": 0,
+    "stderr": "",
+    "stdout": "{\n  \"cgroup\": \"0::/user.slice/user-1000.slice/user@1000.service/app.slice/deckdepot-session-bridge-spike.service\",\n  \"env\": {\n    \"DBUS_SESSION_BUS_ADDRESS\": \"unix:path=/run/user/1000/bus\",\n    \"DESKTOP_SESSION\": \"plasma\",\n    \"DISPLAY\": \":0\",\n    \"WAYLAND_DISPLAY\": \"wayland-0\",\n    \"XDG_CURRENT_DESKTOP\": \"KDE\",\n    \"XDG_RUNTIME_DIR\": \"/run/user/1000\",\n    \"XDG_SEAT\": \"seat0\",\n    \"XDG_SESSION_ID\": \"3\",\n    \"XDG_SESSION_TYPE\": \"wayland\"\n  },\n  \"euid\": 1000,\n  \"gid\": 1000,\n  \"hostname\": \"Bazzite\",\n  \"id\": {\n    \"argv\": [\n      \"id\"\n    ],\n    \"rc\": 0,\n    \"stderr\": \"\",\n    \"stdout\": \"uid=1000(zany130) gid=1000(zany130) groups=1000(zany130),10(wheel),18(dialout),104(input),956(ollama),959(libvirt),982(usershares),1001(docker) context=unconfined_u:unconfined_r:unconfined_t:s0-s0:c0.c1023\"\n  },\n  \"kind\": \"session-bridge-child\",\n  \"loginuid\": \"1000\",\n  \"pid\": 1733504,\n  \"pkcheck\": [\n    {\n      \"actionId\": \"org.freedesktop.Flatpak.app-install\",\n      \"authenticationAgentRequired\": false,\n      \"authorization\": \"yes\",\n      \"rc\": 0,\n      \"stderr\": \"\",\n      \"stdout\": \"polkit\\\\56result=yes\"\n    },\n    {\n      \"actionId\": \"org.freedesktop.Flatpak.app-update\",\n      \"authenticationAgentRequired\": false,\n      \"authorization\": \"yes\",\n      \"rc\": 0,\n      \"stderr\": \"\",\n      \"stdout\": \"\"\n    },\n    {\n      \"actionId\": \"org.freedesktop.Flatpak.app-uninstall\",\n      \"authenticationAgentRequired\": false,\n      \"authorization\": \"yes\",\n      \"rc\": 0,\n      \"stderr\": \"\",\n      \"stdout\": \"polkit\\\\56result=yes\"\n    }\n  ],\n  \"ppid\": 2315,\n  \"session\": {\n    \"loginctl\": {\n      \"argv\": [\n        \"loginctl\",\n        \"show-session\",\n        \"1\",\n        \"-p\",\n        \"Id\",\n        \"-p\",\n        \"Seat\",\n        \"-p\",\n        \"Active\",\n        \"-p\",\n        \"Remote\",\n        \"-p\",\n        \"Type\",\n        \"-p\",\n        \"Class\",\n        \"-p\",\n        \"Desktop\",\n        \"-p\",\n        \"State\",\n        \"-p\",\n        \"TTY\"\n      ],\n      \"rc\": 0,\n      \"stderr\": \"\",\n      \"stdout\": \"Id=1\\nSeat=\\nTTY=\\nRemote=no\\nDesktop=\\nType=unspecified\\nClass=manager\\nActive=yes\\nState=active\"\n    },\n    \"sessionid\": \"1\"\n  },\n  \"sessionBusSocketExists\": true,\n  \"statusGroups\": \"Groups:\\t10 18 104 956 959 982 1000 1001 \",\n  \"uid\": 1000\n}\n",
+    "timedOut": false
+  },
+  "systemdRunArgv": [
+    "/usr/bin/systemd-run",
+    "--user",
+    "--collect",
+    "--wait",
+    "--pipe",
+    "--quiet",
+    "--unit=deckdepot-session-bridge-spike.service",
+    "--",
+    "/usr/bin/python3",
+    "/home/zany130/homebrew/plugins/DeckDepot/py_modules/deckdepot/session_bridge_child.py"
+  ],
+  "userSystemdUnit": {
+    "argv": [
+      "systemctl",
+      "show",
+      "user@1000.service",
+      "-p",
+      "ActiveState",
+      "-p",
+      "WantedBy",
+      "-p",
+      "ActiveEnterTimestamp"
+    ],
+    "rc": 1,
+    "stderr": "systemctl: /tmp/_MEI001a26613B1Uj9/libcrypto.so.3: version `OPENSSL_3.4.0' not found (required by /usr/lib64/systemd/libsystemd-shared-259.8-1.fc44.so)\n",
+    "stdout": "",
+    "timedOut": false
+  }
+}

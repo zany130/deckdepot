@@ -389,10 +389,16 @@ export default function StoreRoute({
 
   const showingDetails = Boolean(detailsTarget || selected || detailsLoading || detailsError);
   const selectedStatus = selected
-    ? statusForApp(inventoryState.inventory, selected, inventoryState.updates)
+    ? statusForApp(inventoryState.inventory, selected, [
+        ...inventoryState.updates,
+        ...inventoryState.systemUpdates,
+      ])
     : undefined;
   const catalogBadge = (app: CatalogAppSummary) =>
-    badgeForApp(inventoryState.inventory, app, inventoryState.updates);
+    badgeForApp(inventoryState.inventory, app, [
+      ...inventoryState.updates,
+      ...inventoryState.systemUpdates,
+    ]);
   const isAppman = selected?.provider === "appman";
 
   const requestInstall = async (app: CatalogAppSummary) => {
@@ -407,17 +413,24 @@ export default function StoreRoute({
       await inventoryState.installAppman(app.appId, app.sourceId || "am");
       return;
     }
+    const scope = inventoryState.resolvedInstallScope;
+    if (!scope) {
+      return;
+    }
     const confirmed = await confirmAction(
       `Install ${app.name}?`,
-      `Install ${app.appId} as a user-scoped Flatpak from Flathub.`
+      `Install ${app.appId} as a ${scope}-scoped Flatpak from Flathub.`
     );
     if (!confirmed) {
       return;
     }
-    await inventoryState.installUser(app.appId);
+    await inventoryState.installFlatpak(app.appId, scope);
   };
 
-  const requestUninstall = async (app: CatalogAppSummary) => {
+  const requestUninstall = async (
+    app: CatalogAppSummary,
+    scope: "user" | "system" = "user"
+  ) => {
     if (app.provider === "appman") {
       const confirmed = await confirmAction(
         `Uninstall ${app.name}?`,
@@ -431,15 +444,20 @@ export default function StoreRoute({
     }
     const confirmed = await confirmAction(
       `Uninstall ${app.name}?`,
-      `Uninstall the user-scoped copy of ${app.appId}? This does not remove application data or any system-wide install.`
+      `Uninstall the ${scope}-scoped copy of ${app.appId}? This does not remove application data or any ${
+        scope === "user" ? "system" : "user"
+      }-scoped install.`
     );
     if (!confirmed) {
       return;
     }
-    await inventoryState.uninstallUser(app.appId);
+    await inventoryState.uninstallFlatpak(app.appId, scope);
   };
 
-  const requestUpdate = async (app: CatalogAppSummary) => {
+  const requestUpdate = async (
+    app: CatalogAppSummary,
+    scope: "user" | "system" = "user"
+  ) => {
     if (app.provider === "appman") {
       const confirmed = await confirmAction(
         `Update ${app.name}?`,
@@ -451,15 +469,17 @@ export default function StoreRoute({
       await inventoryState.updateAppman(app.appId, app.sourceId || "am");
       return;
     }
-    const update = inventoryState.updates.find((item) => item.appId === app.appId);
+    const update = (
+      scope === "system" ? inventoryState.systemUpdates : inventoryState.updates
+    ).find((item) => item.appId === app.appId);
     const confirmed = await confirmAction(
       `Update ${app.name}?`,
-      `Update the user-scoped copy of ${app.appId}? Related runtimes may also be pulled.`
+      `Update the ${scope}-scoped copy of ${app.appId}? Related runtimes may also be pulled.`
     );
     if (!confirmed) {
       return;
     }
-    await inventoryState.updateUser(app.appId, update?.ref || "");
+    await inventoryState.updateFlatpak(app.appId, update?.ref || "", scope);
   };
 
   if (showingDetails) {
@@ -476,16 +496,31 @@ export default function StoreRoute({
         }}
         installStatus={selectedStatus}
         flathubMissing={isAppman ? false : inventoryState.flathubMissing}
+        resolvedInstallScope={isAppman ? null : inventoryState.resolvedInstallScope}
+        scopeUnavailableReason={isAppman ? null : inventoryState.scopeUnavailableReason}
+        systemMutationsAvailable={inventoryState.systemMutationsAvailable}
+        userMutationsDisabled={
+          isAppman
+            ? inventoryState.appmanMutationsDisabled
+            : inventoryState.userMutationsDisabled
+        }
+        systemMutationsDisabled={inventoryState.systemMutationsDisabled}
         mutationsDisabled={
           isAppman
-            ? inventoryState.busy || inventoryState.taskActive
-            : inventoryState.mutationsDisabled
+            ? inventoryState.appmanMutationsDisabled
+            : inventoryState.userMutationsDisabled
         }
         task={inventoryState.task}
         actionError={inventoryState.error}
         onInstall={selected ? () => void requestInstall(selected) : undefined}
-        onUninstall={selected ? () => void requestUninstall(selected) : undefined}
-        onUpdate={selected ? () => void requestUpdate(selected) : undefined}
+        onUninstall={
+          selected
+            ? (scope) => void requestUninstall(selected, scope)
+            : undefined
+        }
+        onUpdate={
+          selected ? (scope) => void requestUpdate(selected, scope) : undefined
+        }
         onEnableFlathub={
           isAppman ? undefined : () => void inventoryState.enableFlathub()
         }

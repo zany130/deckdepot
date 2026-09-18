@@ -3,8 +3,10 @@ import {
   addFlathubRemote,
   cancelTask,
   checkFlathubRemote,
+  getFlatpakScopeStatus,
   getInstalledApps,
   getSystemInstalledApps,
+  getSystemUpdates,
   getTasks,
   getUserUpdates,
   startInstall,
@@ -28,6 +30,8 @@ import { subscribeTaskEvents } from "./taskEvents";
 import {
   EngineErrorResult,
   FlathubRemoteResult,
+  FlatpakScopeStatus,
+  InstallationScope,
   TaskProgress,
   TaskStartResult,
   TaskStatusResult,
@@ -49,22 +53,38 @@ export function useFlatpakInventory() {
   const [inventory, setInventory] = useState<InstalledInventory>(emptyInventory);
   const [updates, setUpdates] = useState<UserUpdate[]>([]);
   const [updatesError, setUpdatesError] = useState<EngineErrorResult | null>(null);
+  const [systemUpdates, setSystemUpdates] = useState<UserUpdate[]>([]);
+  const [systemUpdatesError, setSystemUpdatesError] = useState<EngineErrorResult | null>(
+    null
+  );
+  const [scopeStatus, setScopeStatus] = useState<FlatpakScopeStatus | null>(null);
   const [task, setTask] = useState<TaskProgress | null>(null);
   const [backendSessionId, setBackendSessionId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
-    const [userResult, systemResult, remotes, tasks, updateResult, appmanResult] =
-      await Promise.all([
-        getInstalledApps(),
-        getSystemInstalledApps(),
-        checkFlathubRemote(),
-        getTasks(),
-        getUserUpdates(),
-        getAppmanInstalled(),
-      ]);
+    const [
+      userResult,
+      systemResult,
+      remotes,
+      tasks,
+      updateResult,
+      systemUpdateResult,
+      appmanResult,
+      scopeResult,
+    ] = await Promise.all([
+      getInstalledApps(),
+      getSystemInstalledApps(),
+      checkFlathubRemote(),
+      getTasks(),
+      getUserUpdates(),
+      getSystemUpdates(),
+      getAppmanInstalled(),
+      getFlatpakScopeStatus(),
+    ]);
     setInventory(mergeInventory(userResult, systemResult, remotes, appmanResult));
+    setScopeStatus(scopeResult);
     if (updateResult.ok) {
       const names = new Map(
         (userResult.ok ? userResult.apps : []).map((app) => [app.appId, app.name])
@@ -72,6 +92,7 @@ export function useFlatpakInventory() {
       setUpdates(
         updateResult.updates.map((item) => ({
           ...item,
+          installationScope: item.installationScope || "user",
           name: names.get(item.appId) || item.name || item.appId,
         }))
       );
@@ -79,6 +100,22 @@ export function useFlatpakInventory() {
     } else {
       setUpdates([]);
       setUpdatesError(updateResult);
+    }
+    if (systemUpdateResult.ok) {
+      const names = new Map(
+        (systemResult.ok ? systemResult.apps : []).map((app) => [app.appId, app.name])
+      );
+      setSystemUpdates(
+        systemUpdateResult.updates.map((item) => ({
+          ...item,
+          installationScope: "system",
+          name: names.get(item.appId) || item.name || item.appId,
+        }))
+      );
+      setSystemUpdatesError(null);
+    } else {
+      setSystemUpdates([]);
+      setSystemUpdatesError(systemUpdateResult);
     }
     if (tasks.ok) {
       if (tasks.backendSessionId) {
@@ -180,18 +217,50 @@ export function useFlatpakInventory() {
 
   const taskActive = isActivePhase(task?.phase);
   const remote = inventory.remote;
-  const flathubMissing = remote?.ok === true && remote.present === false;
+  const scopeOk = Boolean(scopeStatus && scopeStatus.ok);
+  const resolvedInstallScope =
+    scopeOk && scopeStatus && scopeStatus.ok ? scopeStatus.resolvedInstallScope : null;
+  const systemMutationsAvailable =
+    scopeOk && scopeStatus && scopeStatus.ok
+      ? scopeStatus.systemMutationsAvailable
+      : false;
+  const userRemotePresent =
+    scopeOk && scopeStatus && scopeStatus.ok
+      ? scopeStatus.userRemotePresent
+      : remote?.ok === true && remote.present === true;
+  const systemRemotePresent =
+    scopeOk && scopeStatus && scopeStatus.ok ? scopeStatus.systemRemotePresent : false;
+  const scopeUnavailableReason =
+    scopeOk && scopeStatus && scopeStatus.ok ? scopeStatus.unavailableReason : null;
+  const flathubMissing = resolvedInstallScope === "user" && userRemotePresent === false;
   const capabilityBlocked =
     remote?.ok === false &&
     (remote.errorCode === "FLATPAK_NOT_FOUND" ||
       remote.errorCode === "CAPABILITY_UNAVAILABLE");
-  const mutationsDisabled = busy || taskActive || capabilityBlocked;
+  const userMutationsDisabled = busy || taskActive || capabilityBlocked;
+  const systemMutationsDisabled =
+    busy || taskActive || capabilityBlocked || !systemMutationsAvailable;
+  const mutationsDisabled = userMutationsDisabled;
   const appmanMutationsDisabled = busy || taskActive;
+  const userScopeRelevant = userRemotePresent || inventory.userApps.some(
+    (app) => app.provider !== "appman"
+  );
+  const systemScopeRelevant = systemRemotePresent || inventory.systemApps.length > 0;
 
   return {
     inventory,
     updates,
     updatesError,
+    systemUpdates,
+    systemUpdatesError,
+    scopeStatus,
+    resolvedInstallScope,
+    systemMutationsAvailable,
+    userRemotePresent,
+    systemRemotePresent,
+    scopeUnavailableReason,
+    userScopeRelevant,
+    systemScopeRelevant,
     task,
     error,
     busy,
@@ -200,10 +269,18 @@ export function useFlatpakInventory() {
     taskActive,
     flathubMissing,
     mutationsDisabled,
+    userMutationsDisabled,
+    systemMutationsDisabled,
     appmanMutationsDisabled,
-    installUser: (appId: string) => run(() => startInstall(appId)),
-    uninstallUser: (appId: string) => run(() => startUninstall(appId)),
-    updateUser: (appId: string, ref: string) => run(() => startUpdate(appId, ref)),
+    installFlatpak: (appId: string, scope?: InstallationScope) =>
+      run(() => startInstall(appId, scope)),
+    uninstallFlatpak: (appId: string, scope: InstallationScope) =>
+      run(() => startUninstall(appId, scope)),
+    updateFlatpak: (appId: string, ref: string, scope: InstallationScope) =>
+      run(() => startUpdate(appId, ref, scope)),
+    installUser: (appId: string) => run(() => startInstall(appId, "user")),
+    uninstallUser: (appId: string) => run(() => startUninstall(appId, "user")),
+    updateUser: (appId: string, ref: string) => run(() => startUpdate(appId, ref, "user")),
     installAppman: (appId: string, sourceId: string) =>
       run(() => startAppmanInstall(appId, sourceId)),
     uninstallAppman: (appId: string, sourceId: string) =>
@@ -211,7 +288,8 @@ export function useFlatpakInventory() {
     updateAppman: (appId: string, sourceId: string) =>
       run(() => startAppmanUpdate(appId, sourceId)),
     updateAllAppman: () => run(() => startAppmanUpdateAll()),
-    updateAllUser: () => run(() => startUpdateAll()),
+    updateAllUser: () => run(() => startUpdateAll("user")),
+    updateAllSystem: () => run(() => startUpdateAll("system")),
     enableFlathub: () => run(() => addFlathubRemote()),
     cancelCurrent: () =>
       task ? run(() => cancelTask(task.taskId)) : Promise.resolve(),

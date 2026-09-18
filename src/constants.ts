@@ -7,6 +7,7 @@ export const STORE_ROUTE = "/deckdepot";
 export const DISCOVER_ROUTE = "/deckdepot/discover";
 export const TASK_EVENT_NAME = "deckdepot:task-event";
 export const UPDATE_ALL_APP_ID = "all-user-apps";
+export const SYSTEM_UPDATE_ALL_APP_ID = "all-system-apps";
 export const APPMAN_UPDATE_ALL_APP_ID = "all-appman-apps";
 
 export const FLATHUB_SEARCH_URL = "https://flathub.org/api/v2/search";

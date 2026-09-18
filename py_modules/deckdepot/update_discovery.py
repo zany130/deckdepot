@@ -49,7 +49,9 @@ def is_store_application_update(app_id: str, ref: str) -> bool:
     return True
 
 
-def parse_update_output(stdout: str) -> dict[str, Any]:
+def parse_update_output(
+    stdout: str, *, installation_scope: str = "user"
+) -> dict[str, Any]:
     rows: list[dict[str, Any]] = []
     dropped: list[dict[str, Any]] = []
     malformed: list[dict[str, Any]] = []
@@ -79,7 +81,7 @@ def parse_update_output(stdout: str) -> dict[str, Any]:
         rows.append(
             {
                 "provider": "flatpak",
-                "installationScope": "user",
+                "installationScope": installation_scope,
                 "appId": app_id,
                 "name": app_id,
                 "branch": raw.get("branch") or "",
@@ -102,22 +104,37 @@ def parse_update_output(stdout: str) -> dict[str, Any]:
 
 
 async def list_user_updates() -> dict[str, Any]:
+    return await list_updates_for_scope("user")
+
+
+async def list_updates_for_scope(scope: str) -> dict[str, Any]:
+    if scope not in {"user", "system"}:
+        raise EngineError("INVALID_ARGUMENT", "scope must be user or system")
+    flag = "--user" if scope == "user" else "--system"
     command = await run_flatpak(
-        list(UPDATE_LS_ARGS),
+        [
+            "remote-ls",
+            "--updates",
+            flag,
+            "--app",
+            f"--columns={','.join(UPDATE_COLUMNS)}",
+        ],
         timeout_sec=COMMAND_TIMEOUT_SEC["remote_ls"],
         extra_env={"LC_ALL": "C", "LANG": "C.UTF-8"},
     )
     if command["exitCode"] != 0:
         raise EngineError(
             "PROCESS_FAILED",
-            "Could not query user-scoped Flatpak updates. The remote may be unreachable.",
+            f"Could not query {scope}-scoped Flatpak updates. The remote may be unreachable.",
             details={
                 "exitCode": command["exitCode"],
                 "stderr": (command["stderr"] or "")[:1500],
                 "degraded": True,
+                "installationScope": scope,
             },
         )
-    parsed = parse_update_output(command["stdout"] or "")
+    parsed = parse_update_output(command["stdout"] or "", installation_scope=scope)
     parsed["flatpakPath"] = command["argv"][0]
     parsed["discoveryArgv"] = command["argv"]
+    parsed["installationScope"] = scope
     return parsed

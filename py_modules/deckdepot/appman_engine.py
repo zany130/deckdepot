@@ -418,6 +418,27 @@ def _read_catalog_file(path: str) -> list[dict[str, Any]]:
     return rows
 
 
+def _lookup_catalog_summary(app_id: str, source_id: str) -> str | None:
+    """Reuse the local AppMan catalog description already shown on browse cards."""
+    try:
+        scope = validate_search_scope(load_settings()["searchScope"])
+    except EngineError:
+        scope = "default"
+    matched: str | None = None
+    for path in _catalog_list_file(scope, _user_home()):
+        for entry in _read_catalog_file(path):
+            if entry.get("appId") != app_id:
+                continue
+            text = (entry.get("summary") or "").strip()
+            if not text:
+                continue
+            if entry.get("sourceId") == source_id:
+                return text
+            if matched is None:
+                matched = text
+    return matched
+
+
 def parse_search_output(stdout: str) -> list[dict[str, Any]]:
     apps: list[dict[str, Any]] = []
     seen: set[tuple[str, str]] = set()
@@ -608,18 +629,20 @@ async def get_details(app_id: str, source_id: str = "am") -> dict[str, Any]:
         binary=binary,
     )
     parsed = _parse_about(command["stdout"])
-    summary = (parsed.get("descriptionText") or "")[:180]
+    catalog_summary = _lookup_catalog_summary(app_id, source_id)
+    about_text = (parsed.get("descriptionText") or "").strip() or None
+    summary = catalog_summary or ((about_text[:180] if about_text else None))
     desktop = _desktop_categories(app_id) if parsed["installedState"] == "installed" else ""
     app = _to_summary(
         app_id,
-        summary,
+        summary or "",
         source_id=source_id,
         installed_state=parsed["installedState"],
         installed_version=parsed.get("installedVersion"),
         desktop_categories=desktop,
         resolve_local_icon=parsed["installedState"] == "installed",
     )
-    app["descriptionText"] = parsed.get("descriptionText")
+    app["descriptionText"] = about_text or catalog_summary
     app["homepageUrl"] = parsed.get("homepageUrl")
     app["screenshots"] = parsed.get("screenshots") or []
     app["latestVersion"] = parsed.get("installedVersion") if parsed["installedState"] == "installed" else None

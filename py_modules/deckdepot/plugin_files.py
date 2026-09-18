@@ -14,7 +14,12 @@ import decky
 from deckdepot.errors import EngineError
 
 INTERRUPT_FILENAME = "interrupted-task.json"
-OWNED_SETTINGS_FILES = ("steamgriddb.json", "shortcut-registry.json", "appman.json")
+OWNED_SETTINGS_FILES = (
+    "steamgriddb.json",
+    "shortcut-registry.json",
+    "appman.json",
+    "flatpak.json",
+)
 OWNED_RUNTIME_FILES = (INTERRUPT_FILENAME,)
 
 

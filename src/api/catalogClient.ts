@@ -5,9 +5,11 @@ import {
 } from "./flathubClient";
 import { getAppmanCategory, getAppmanDetails, getAppmanSearch } from "./appmanBridge";
 import {
+  CatalogAppSummary,
   CatalogDetailsResult,
   CatalogFailure,
   CatalogSearchResult,
+  mergeAppmanCatalogDetails,
 } from "../types/catalog";
 import { ProviderId } from "../types/provider";
 
@@ -106,14 +108,17 @@ export async function listProviderCategory(
 }
 
 export async function getCatalogDetails(
-  app: { provider: ProviderId; appId: string; sourceId?: string },
+  app: CatalogAppSummary | { provider: ProviderId; appId: string; sourceId?: string },
   options: { signal?: AbortSignal } = {}
 ): Promise<CatalogDetailsResult> {
   if (app.provider === "appman") {
     try {
       const result = await getAppmanDetails(app.appId, app.sourceId || "am");
       if (result.ok) {
-        return result;
+        return {
+          ok: true,
+          app: mergeAppmanCatalogDetails(app, result.app),
+        };
       }
       return asCatalogFailure(result);
     } catch (exc) {

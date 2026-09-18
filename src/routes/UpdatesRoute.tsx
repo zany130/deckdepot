@@ -1,15 +1,17 @@
 import {
   DialogButton,
   Focusable,
+  GamepadButton,
   Marquee,
   NavEntryPositionPreferences,
 } from "@decky/ui";
-import { useState, type ReactElement } from "react";
+import { useEffect, useState, type ReactElement } from "react";
 import { friendlyEngineError } from "../api/installedInventory";
 import { useFlatpakInventory } from "../api/useFlatpakInventory";
 import { confirmAction } from "../components/confirmAction";
 import SegmentedControl from "../components/SegmentedControl";
 import {
+  consumeGamepadEvent,
   embeddedPageStyle,
   focusOutline,
 } from "../components/storeLayout";
@@ -30,11 +32,26 @@ function dedupeAppman(apps: AppSummary[]): AppSummary[] {
 export default function UpdatesRoute(): ReactElement {
   const state = useFlatpakInventory();
   const [provider, setProvider] = useState<ProviderId>("flatpak");
+  const [flatpakScope, setFlatpakScope] = useState<"user" | "system">("user");
   const [restoreFlatpakId, setRestoreFlatpakId] = useState<string | null>(null);
   const [restoreAppmanId, setRestoreAppmanId] = useState<string | null>(null);
-  const degraded = state.updatesError;
+  const showScopeToggle = state.userScopeRelevant && state.systemScopeRelevant;
+
+  useEffect(() => {
+    if (showScopeToggle) {
+      return;
+    }
+    setFlatpakScope(state.systemScopeRelevant && !state.userScopeRelevant ? "system" : "user");
+  }, [showScopeToggle, state.systemScopeRelevant, state.userScopeRelevant]);
+
+  const degraded = flatpakScope === "system" ? state.systemUpdatesError : state.updatesError;
   const appmanError = state.inventory.appmanError;
-  const flatpakUpdates = state.updates.filter((item) => item.provider !== "appman");
+  const flatpakUpdates =
+    flatpakScope === "system"
+      ? state.systemUpdates.filter((item) => item.provider !== "appman")
+      : state.updates.filter((item) => item.provider !== "appman");
+  const mutationsDisabled =
+    flatpakScope === "system" ? state.systemMutationsDisabled : state.userMutationsDisabled;
   const appmanManaged = dedupeAppman(
     state.inventory.userApps.filter((app) => app.provider === "appman" && app.hasUpdater)
   );
@@ -50,14 +67,15 @@ export default function UpdatesRoute(): ReactElement {
         : null;
 
   const requestFlatpakUpdate = async (update: UserUpdate) => {
+    const scope = update.installationScope === "system" ? "system" : "user";
     const confirmed = await confirmAction(
       `Update ${update.name}?`,
-      `Update the user-scoped copy of ${update.appId}? Related runtimes may also be pulled.`
+      `Update the ${scope}-scoped copy of ${update.appId}? Related runtimes may also be pulled.`
     );
     if (!confirmed) {
       return;
     }
-    await state.updateUser(update.appId, update.ref);
+    await state.updateFlatpak(update.appId, update.ref, scope);
   };
 
   const requestAppmanUpdate = async (app: AppSummary) => {
@@ -73,10 +91,16 @@ export default function UpdatesRoute(): ReactElement {
 
   const requestFlatpakUpdateAll = async () => {
     const confirmed = await confirmAction(
-      "Update all Flatpak apps?",
-      "Update every listed user-scoped Flatpak app. Related runtimes may also be pulled. System installations and AppMan apps are not changed."
+      `Update all ${flatpakScope}-scoped Flatpak apps?`,
+      `Update every listed ${flatpakScope}-scoped Flatpak app. Related runtimes may also be pulled. ${
+        flatpakScope === "user" ? "System" : "User"
+      } installations and AppMan apps are not changed.`
     );
     if (!confirmed) {
+      return;
+    }
+    if (flatpakScope === "system") {
+      await state.updateAllSystem();
       return;
     }
     await state.updateAllUser();
@@ -121,13 +145,54 @@ export default function UpdatesRoute(): ReactElement {
 
       {provider === "flatpak" ? (
         <>
-          <Focusable flow-children="row" style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+          {showScopeToggle ? (
+            <SegmentedControl
+              value={flatpakScope}
+              options={[
+                { id: "user", label: `User (${state.updates.length})` },
+                { id: "system", label: `System (${state.systemUpdates.length})` },
+              ]}
+              onChange={(id) => setFlatpakScope(id as "user" | "system")}
+            />
+          ) : null}
+          {flatpakScope === "system" && !state.systemMutationsAvailable ? (
+            <div style={{ opacity: 0.8 }}>
+              System update inventory is shown when available, but system management is
+              currently unavailable
+              {state.scopeUnavailableReason ? `: ${state.scopeUnavailableReason}` : "."}
+            </div>
+          ) : null}
+          <Focusable
+            flow-children="row"
+            style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}
+            actionDescriptionMap={
+              showScopeToggle
+                ? {
+                    [GamepadButton.BUMPER_LEFT]: "Scope",
+                    [GamepadButton.BUMPER_RIGHT]: "Scope",
+                  }
+                : undefined
+            }
+            onButtonDown={
+              showScopeToggle
+                ? (evt) => {
+                    if (evt.detail.button === GamepadButton.BUMPER_LEFT) {
+                      consumeGamepadEvent(evt);
+                      setFlatpakScope((current) => (current === "user" ? "system" : "user"));
+                    } else if (evt.detail.button === GamepadButton.BUMPER_RIGHT) {
+                      consumeGamepadEvent(evt);
+                      setFlatpakScope((current) => (current === "system" ? "user" : "system"));
+                    }
+                  }
+                : undefined
+            }
+          >
             <DialogButton preferredFocus disabled={state.busy} onClick={() => void state.refresh()}>
               Refresh
             </DialogButton>
             {flatpakUpdates.length > 0 ? (
               <DialogButton
-                disabled={state.mutationsDisabled}
+                disabled={mutationsDisabled}
                 onClick={() => void requestFlatpakUpdateAll()}
               >
                 Update All
@@ -146,7 +211,9 @@ export default function UpdatesRoute(): ReactElement {
             </div>
           ) : null}
           {emptyFlatpak ? (
-            <div style={{ opacity: 0.85 }}>All Flatpak apps are up to date.</div>
+            <div style={{ opacity: 0.85 }}>
+              All {flatpakScope}-scoped Flatpak apps are up to date.
+            </div>
           ) : null}
           {!degraded && flatpakUpdates.length > 0 ? (
             <Focusable
@@ -160,13 +227,13 @@ export default function UpdatesRoute(): ReactElement {
             >
               {flatpakUpdates.map((update) => (
                 <UpdateRow
-                  key={update.ref || update.appId}
+                  key={`${update.installationScope || "user"}:${update.ref || update.appId}`}
                   title={update.name}
-                  subtitle={`Flatpak · ${update.appId}${update.ref ? ` · ${update.ref}` : ""}${
+                  subtitle={`Flatpak · ${update.installationScope || "user"} · ${update.appId}${update.ref ? ` · ${update.ref}` : ""}${
                     update.origin ? ` · ${update.origin}` : ""
                   }`}
                   preferredFocus={restoreFlatpakId === update.appId}
-                  disabled={state.mutationsDisabled}
+                  disabled={mutationsDisabled}
                   onUpdate={() => void requestFlatpakUpdate(update)}
                   onFocused={() => setRestoreFlatpakId(update.appId)}
                 />

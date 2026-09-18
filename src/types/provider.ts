@@ -41,9 +41,13 @@ export function catalogKey(app: {
   provider: ProviderId;
   appId: string;
   sourceId?: string;
+  installationScope?: string;
 }): string {
   if (app.provider === "appman") {
     return `appman:${app.sourceId || "am"}:${app.appId}`;
+  }
+  if (app.installationScope) {
+    return `flatpak:${app.installationScope}:${app.appId}`;
   }
   return `flatpak:${app.appId}`;
 }

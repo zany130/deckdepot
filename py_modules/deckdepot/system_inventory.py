@@ -40,7 +40,7 @@ async def list_system_installed() -> dict[str, Any]:
                 "installationScope": "system",
             },
         )
-    parsed = parse_list_output(command["stdout"] or "")
+    parsed = parse_list_output(command["stdout"] or "", installation_scope="system")
     for app in parsed["apps"]:
         app["installationScope"] = "system"
     parsed["installationScope"] = "system"

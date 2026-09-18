@@ -23,6 +23,9 @@ find "$STAGE" -type d -name '__pycache__' -prune -exec rm -rf {} +
 find "$STAGE" -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete
 # Spike harnesses live under spikes/ and must never ship.
 rm -f "$STAGE/py_modules/deckdepot/"*{spike,contract,launch,schema}.py
+rm -f "$STAGE/py_modules/deckdepot/session_bridge_from_plugin.py" \
+      "$STAGE/py_modules/deckdepot/session_bridge_child.py" \
+      "$STAGE/py_modules/deckdepot/session_bridge_probe.py"
 if [[ -d "$ROOT/assets" ]]; then
   cp -a "$ROOT/assets/." "$STAGE/assets/"
 fi

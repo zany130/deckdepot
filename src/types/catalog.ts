@@ -68,3 +68,42 @@ export function isCatalogFailure(
 ): result is CatalogFailure {
   return result.ok === false;
 }
+
+function firstPresentText(
+  ...values: Array<string | null | undefined>
+): string | undefined {
+  for (const value of values) {
+    const text = value?.trim();
+    if (text) {
+      return text;
+    }
+  }
+  return undefined;
+}
+
+export function mergeAppmanCatalogDetails(
+  catalog: Partial<CatalogAppSummary> & Pick<CatalogAppSummary, "appId" | "provider">,
+  details: CatalogAppDetails
+): CatalogAppDetails {
+  const summary = firstPresentText(details.summary, catalog.summary);
+  return {
+    ...catalog,
+    ...details,
+    summary,
+    descriptionText: firstPresentText(
+      details.descriptionText,
+      catalog.summary,
+      details.summary
+    ),
+    iconUrl: details.iconUrl || catalog.iconUrl,
+    sourceId: details.sourceId || catalog.sourceId,
+    sourceLabel: details.sourceLabel || catalog.sourceLabel,
+    categories: details.categories?.length
+      ? details.categories
+      : catalog.categories || [],
+    nativeCategories: details.nativeCategories?.length
+      ? details.nativeCategories
+      : catalog.nativeCategories,
+    screenshots: details.screenshots || [],
+  };
+}

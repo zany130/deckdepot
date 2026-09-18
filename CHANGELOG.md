@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.1
+
+- Manage system-scoped Flatpaks through the verified user-systemd session bridge
+- Restore AppMan detail-page descriptions from catalog/search metadata
+
 ## 1.0.0
 
 First public release.

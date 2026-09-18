@@ -24,12 +24,19 @@ from deckdepot.appman_engine import (
 from deckdepot.appman_ids import validate_appman_name, validate_source_id
 from deckdepot.flatpak_engine import (
     COMMAND_TIMEOUT_SEC,
+    SYSTEM_UPDATE_ALL_APP_ID,
+    SYSTEM_UPDATE_ALL_ARGS,
     UPDATE_ALL_APP_ID,
-    confirm_remote_app,
+    confirm_remote_app_for_scope,
+    find_installed_scopes,
     list_installed,
-    require_installed,
+    mutation_argv,
+    require_installed_in_scope,
     spawn_mutation,
 )
+from deckdepot.flatpak_scope import resolve_new_install_scope
+from deckdepot.session_bridge import probe_capability, spawn_system_flatpak, stop_bridged_unit
+from deckdepot.system_inventory import list_system_installed
 from deckdepot.plugin_files import load_interrupted_task, persist_interrupted_task
 from deckdepot.ids import validate_flatpak_app_id, validate_flatpak_ref
 from deckdepot.redact import redact_text
@@ -99,18 +106,29 @@ class TaskManager:
         *,
         provider: str = "flatpak",
         source_id: str = "am",
+        installation_scope: str | None = None,
     ) -> dict[str, Any]:
         if provider not in {"flatpak", "appman"}:
             raise EngineError("INVALID_ARGUMENT", "unsupported provider")
+        remote_name = None
         if operation == "update_all":
             if provider == "flatpak":
-                app_id = UPDATE_ALL_APP_ID
+                scope = (installation_scope or "user").strip().lower()
+                if scope not in {"user", "system"}:
+                    raise EngineError("INVALID_ARGUMENT", "update-all scope must be user or system")
+                if scope == "system":
+                    await _require_system_bridge()
+                    app_id = SYSTEM_UPDATE_ALL_APP_ID
+                else:
+                    app_id = UPDATE_ALL_APP_ID
+                installation_scope = scope
                 ref = None
                 source_id = "am"
             elif provider == "appman":
                 app_id = APPMAN_UPDATE_ALL_APP_ID
                 ref = None
                 source_id = "am"
+                installation_scope = "user"
             else:
                 raise EngineError("INVALID_ARGUMENT", "unsupported provider")
         elif provider == "appman":
@@ -120,16 +138,27 @@ class TaskManager:
                 raise EngineError("INVALID_ARGUMENT", "unsupported operation")
             if operation in {"update", "uninstall"}:
                 await require_appman_installed(app_id, source_id)
+            installation_scope = "user"
+            remote_name = None
             ref = None
         else:
             app_id = validate_flatpak_app_id(app_id)
             source_id = "am"
             if operation not in {"install", "update", "uninstall"}:
                 raise EngineError("INVALID_ARGUMENT", "unsupported operation")
+            requested = (installation_scope or "").strip().lower() or None
+            if requested not in {None, "user", "system"}:
+                raise EngineError("INVALID_ARGUMENT", "installation scope must be user or system")
+            remote_name = None
             if operation == "install":
-                await confirm_remote_app(app_id)
-            elif operation in {"update", "uninstall"}:
-                await require_installed(app_id)
+                installation_scope = await resolve_new_install_scope(requested)
+                if installation_scope == "system":
+                    await _require_system_bridge()
+                remote_name = await confirm_remote_app_for_scope(app_id, installation_scope)
+            else:
+                installation_scope = await _resolve_existing_scope(app_id, requested)
+                if installation_scope == "system":
+                    await _require_system_bridge()
             if operation == "update" and ref:
                 ref = validate_flatpak_ref(ref, app_id=app_id)
             else:
@@ -152,6 +181,8 @@ class TaskManager:
                 "provider": provider,
                 "appId": app_id,
                 "sourceId": source_id if provider == "appman" else None,
+                "installationScope": installation_scope or "user",
+                "remoteName": remote_name,
                 "ref": ref,
                 "operation": operation,
                 "phase": "queued",
@@ -184,6 +215,9 @@ class TaskManager:
                 os.killpg(proc.pid, signal.SIGTERM)
             except ProcessLookupError:
                 pass
+        unit = task.get("bridgeUnit")
+        if unit:
+            await stop_bridged_unit(str(unit))
         return {"ok": True, "task": dict(task)}
 
     async def cancel_active(self) -> None:
@@ -205,7 +239,10 @@ class TaskManager:
             except (asyncio.TimeoutError, asyncio.CancelledError):
                 runner.cancel()
                 if self._proc is not None:
-                    await self._kill_group(self._proc)
+                    unit = None
+                    if task_id and task_id in self._tasks:
+                        unit = self._tasks[task_id].get("bridgeUnit")
+                    await self._kill_group(self._proc, unit)
         if was_active and task_id:
             final = self._tasks.get(task_id)
             if final:
@@ -231,6 +268,29 @@ class TaskManager:
                 timeout = APPMAN_TIMEOUT_SEC.get(
                     task["operation"], APPMAN_TIMEOUT_SEC["update"]
                 )
+            elif task.get("installationScope") == "system":
+                unit = f"deckdepot-system-flatpak-{task_id}.service"
+                task["bridgeUnit"] = unit
+                if task["operation"] == "update_all":
+                    args = list(SYSTEM_UPDATE_ALL_ARGS)
+                else:
+                    args = mutation_argv(
+                        task["operation"],
+                        task["appId"],
+                        ref=task.get("ref"),
+                        scope="system",
+                        remote_name=str(task.get("remoteName") or "flathub"),
+                    )
+                proc = await spawn_system_flatpak(
+                    args,
+                    unit=unit,
+                    timeout_sec=COMMAND_TIMEOUT_SEC[
+                        "update" if task["operation"] == "update_all" else task["operation"]
+                    ],
+                )
+                timeout = COMMAND_TIMEOUT_SEC[
+                    "update" if task["operation"] == "update_all" else task["operation"]
+                ]
             else:
                 proc = await spawn_mutation(
                     task["operation"],
@@ -279,23 +339,39 @@ class TaskManager:
                     )
                     task["errorCode"] = "PROCESS_FAILED"
             elif exit_code == 0:
-                self._set_phase(
-                    task,
-                    "completed",
-                    status_text="completed",
-                    exit_code=0,
-                )
+                verified, verify_error = await _verify_flatpak_result(task)
+                if verified:
+                    self._set_phase(
+                        task,
+                        "completed",
+                        status_text="completed",
+                        exit_code=0,
+                    )
+                else:
+                    self._set_phase(
+                        task,
+                        "failed",
+                        status_text="failed",
+                        exit_code=0,
+                        error_message=verify_error
+                        or "Command finished but installed state did not change as expected.",
+                    )
+                    task["errorCode"] = "STATE_UNCHANGED"
             else:
+                error_code, error_message = _classify_flatpak_failure(
+                    str(task.get("installationScope") or "user"),
+                    stdout,
+                    stderr,
+                    exit_code,
+                )
                 self._set_phase(
                     task,
                     "failed",
                     status_text="failed",
                     exit_code=exit_code,
-                    error_message=redact_text(
-                        (stderr or stdout or "Flatpak command failed")[:1500]
-                    ),
+                    error_message=redact_text(error_message),
                 )
-                task["errorCode"] = "PROCESS_FAILED"
+                task["errorCode"] = error_code
         except EngineError as exc:
             self._set_phase(
                 task,
@@ -327,7 +403,7 @@ class TaskManager:
                         for row in installed["apps"]
                     )
                 else:
-                    installed = await list_installed()
+                    installed = await _list_scope(task.get("installationScope") or "user")
                     present = any(
                         row["appId"] == task["appId"] for row in installed["apps"]
                     )
@@ -389,7 +465,7 @@ class TaskManager:
         while proc.returncode is None:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                await self._kill_group(proc)
+                await self._kill_group(proc, task.get("bridgeUnit"))
                 await proc.wait()
                 task["timedOut"] = True
                 break
@@ -397,7 +473,7 @@ class TaskManager:
                 if cancel_deadline is None:
                     cancel_deadline = time.monotonic() + CANCEL_GRACE_SEC
                 if time.monotonic() >= cancel_deadline:
-                    await self._kill_group(proc)
+                    await self._kill_group(proc, task.get("bridgeUnit"))
                     if proc.returncode is None:
                         await proc.wait()
                     break
@@ -410,10 +486,122 @@ class TaskManager:
         stderr = b"".join(stderr_chunks).decode("utf-8", "replace")
         return stdout, stderr, proc.returncode
 
-    async def _kill_group(self, proc: asyncio.subprocess.Process) -> None:
-        if proc.returncode is not None:
-            return
-        try:
-            os.killpg(proc.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            return
+    async def _kill_group(
+        self, proc: asyncio.subprocess.Process, unit: str | None = None
+    ) -> None:
+        if proc.returncode is None:
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        if unit:
+            await stop_bridged_unit(str(unit))
+
+
+async def _require_system_bridge() -> None:
+    capability = await probe_capability()
+    if capability.get("available"):
+        return
+    raise EngineError(
+        str(capability.get("errorCode") or "SESSION_BRIDGE_UNAVAILABLE"),
+        str(capability.get("reason") or "System Flatpak management is unavailable."),
+        details=capability,
+    )
+
+
+async def _resolve_existing_scope(app_id: str, requested: str | None) -> str:
+    if requested in {"user", "system"}:
+        await require_installed_in_scope(app_id, requested)
+        return requested
+    found = await find_installed_scopes(app_id)
+    if found == ["user"]:
+        return "user"
+    if found == ["system"]:
+        return "system"
+    if len(found) > 1:
+        raise EngineError(
+            "AMBIGUOUS_SCOPE",
+            f"{app_id} is installed in both user and system scopes. Choose one.",
+            details={"scopes": found},
+        )
+    raise EngineError(
+        "INVALID_ARGUMENT",
+        f"{app_id} is not an installed Flatpak.",
+    )
+
+
+async def _list_scope(scope: str) -> dict[str, Any]:
+    if scope == "system":
+        return await list_system_installed()
+    return await list_installed()
+
+
+async def _verify_flatpak_result(task: dict[str, Any]) -> tuple[bool, str | None]:
+    scope = str(task.get("installationScope") or "user")
+    operation = task.get("operation")
+    try:
+        installed = await _list_scope(scope)
+    except EngineError as exc:
+        return False, exc.message
+    if operation == "update_all":
+        return True, None
+    present = any(row["appId"] == task["appId"] for row in installed["apps"])
+    if operation == "install":
+        if present:
+            return True, None
+        return False, (
+            f"{task['appId']} was not found in the {scope}-scoped inventory after install."
+        )
+    if operation == "uninstall":
+        if not present:
+            return True, None
+        return False, (
+            f"{task['appId']} is still present in the {scope}-scoped inventory after uninstall."
+        )
+    if operation == "update":
+        if present:
+            return True, None
+        return False, (
+            f"{task['appId']} is no longer installed in {scope} scope after update."
+        )
+    return True, None
+
+
+def _classify_flatpak_failure(
+    scope: str, stdout: str, stderr: str, exit_code: int | None
+) -> tuple[str, str]:
+    blob = f"{stderr}\n{stdout}".lower()
+    detail = (stderr or stdout or "Flatpak command failed").strip()[:1500]
+    if scope == "system":
+        if "failed to connect" in blob or "not defined" in blob:
+            return (
+                "SESSION_BRIDGE_UNAVAILABLE",
+                "Could not reach the user systemd manager for system Flatpak actions.",
+            )
+        if (
+            "not authorized" in blob
+            or "auth_admin" in blob
+            or "authentication is required" in blob
+            or "polkit" in blob
+        ):
+            return (
+                "SESSION_BRIDGE_UNAUTHORIZED",
+                "System Flatpak authorization was denied by the host policy.",
+            )
+    if "remote" in blob and (
+        "not found" in blob or "can't find" in blob or "cannot find" in blob
+    ):
+        return ("FLATHUB_REMOTE_MISSING", detail or "The Flatpak remote is unavailable.")
+    if any(
+        marker in blob
+        for marker in (
+            "network is unreachable",
+            "temporary failure in name resolution",
+            "could not connect",
+            "failed to download",
+        )
+    ):
+        return ("NETWORK_FAILURE", detail or "The Flatpak download failed.")
+    if exit_code is None:
+        return ("PROCESS_FAILED", detail or "Flatpak command failed.")
+    return ("PROCESS_FAILED", detail)

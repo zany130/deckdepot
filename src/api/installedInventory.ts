@@ -9,7 +9,7 @@ import {
   UserUpdate,
   isActivePhase,
 } from "../types/flatpak";
-import { APPMAN_UPDATE_ALL_APP_ID, UPDATE_ALL_APP_ID } from "../constants";
+import { APPMAN_UPDATE_ALL_APP_ID, SYSTEM_UPDATE_ALL_APP_ID, UPDATE_ALL_APP_ID } from "../constants";
 
 export type CatalogBadge = "installed" | "system" | "update" | null;
 
@@ -19,6 +19,8 @@ export interface AppInstallStatus {
   userApp: AppSummary | null;
   systemApp: AppSummary | null;
   updates: UserUpdate[];
+  userUpdates: UserUpdate[];
+  systemUpdates: UserUpdate[];
 }
 
 export interface InstalledInventory {
@@ -92,12 +94,26 @@ export function statusForApp(
     ref.provider === "appman"
       ? null
       : inventory.systemApps.find((app) => sameApp(app, ref)) ?? null;
+  const userUpdates = updates.filter(
+    (item) =>
+      item.appId === ref.appId &&
+      item.provider !== "appman" &&
+      (item.installationScope || "user") === "user"
+  );
+  const systemUpdates = updates.filter(
+    (item) =>
+      item.appId === ref.appId &&
+      item.provider !== "appman" &&
+      item.installationScope === "system"
+  );
   return {
     userInstalled: Boolean(userApp),
     systemInstalled: Boolean(systemApp),
     userApp,
     systemApp,
-    updates: updates.filter((item) => item.appId === ref.appId && item.provider !== "appman"),
+    updates: [...userUpdates, ...systemUpdates],
+    userUpdates,
+    systemUpdates,
   };
 }
 
@@ -107,7 +123,7 @@ export function badgeForApp(
   updates: UserUpdate[] = []
 ): CatalogBadge {
   const status = statusForApp(inventory, target, updates);
-  if (status.userInstalled && status.updates.length > 0) {
+  if (status.userUpdates.length > 0 || status.systemUpdates.length > 0) {
     return "update";
   }
   if (status.userInstalled) {
@@ -126,16 +142,31 @@ export function friendlyEngineError(result: EngineErrorResult): string {
 export function activeTaskForApp(
   task: TaskProgress | null,
   appId: string,
-  provider?: string
+  provider?: string,
+  scope?: InstallationScope
 ): TaskProgress | null {
   if (!task || !isActivePhase(task.phase)) {
     return null;
   }
   if (task.appId === appId && (!provider || task.provider === provider)) {
+    if (scope && task.installationScope && task.installationScope !== scope) {
+      return null;
+    }
     return task;
   }
   if (task.operation === "update_all") {
-    if (task.appId === UPDATE_ALL_APP_ID && provider !== "appman") {
+    if (
+      task.appId === UPDATE_ALL_APP_ID &&
+      provider !== "appman" &&
+      (!scope || scope === "user")
+    ) {
+      return task;
+    }
+    if (
+      task.appId === SYSTEM_UPDATE_ALL_APP_ID &&
+      provider !== "appman" &&
+      (!scope || scope === "system")
+    ) {
       return task;
     }
     if (task.appId === APPMAN_UPDATE_ALL_APP_ID && provider === "appman") {

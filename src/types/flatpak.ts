@@ -50,6 +50,8 @@ export interface TaskProgress {
   provider: ProviderId;
   appId: string;
   sourceId?: string | null;
+  installationScope?: InstallationScope;
+  remoteName?: string | null;
   ref?: string | null;
   operation: TaskOperation;
   phase: TaskPhase;
@@ -130,6 +132,42 @@ export type TaskStartResult =
 
 export type TaskStatusResult =
   | { ok: true; task: TaskProgress; alreadyFinished?: boolean }
+  | EngineErrorResult;
+
+export type FlatpakInstallScopePreference = "automatic" | "user" | "system";
+
+export interface SessionBridgeCapability {
+  ok: true;
+  available: boolean;
+  reachable?: boolean;
+  authorized?: boolean;
+  reason?: string;
+  errorCode?: string | null;
+  exitCode?: number | null;
+  elapsedMs?: number;
+}
+
+export type FlatpakScopeStatus =
+  | {
+      ok: true;
+      installScopePreference: FlatpakInstallScopePreference;
+      resolvedInstallScope: InstallationScope | null;
+      unavailableReason: string | null;
+      userRemotePresent: boolean;
+      systemRemotePresent: boolean;
+      userConfigured: boolean;
+      systemConfigured: boolean;
+      userUsable: boolean;
+      systemUsable: boolean;
+      systemMutationsAvailable: boolean;
+      userRemoteName?: string | null;
+      systemRemoteName?: string | null;
+      userRemotes?: Array<{ name: string; title: string; url: string }>;
+      systemRemotes?: Array<{ name: string; title: string; url: string }>;
+      userRemoteError?: EngineErrorResult | null;
+      systemRemoteError?: EngineErrorResult | null;
+      bridge?: SessionBridgeCapability;
+    }
   | EngineErrorResult;
 
 export function isActivePhase(phase: TaskPhase | undefined): boolean {

@@ -6,6 +6,10 @@ import {
   type AppManStatusResult,
 } from "../api/appmanBridge";
 import {
+  getFlatpakScopeStatus,
+  setFlatpakInstallScope,
+} from "../api/flatpakBridge";
+import {
   clearSteamGridDbApiKey,
   getSteamGridDbStatus,
   setSteamGridDbApiKey,
@@ -13,7 +17,17 @@ import {
 import { confirmAction } from "../components/confirmAction";
 import { embeddedPageStyle } from "../components/storeLayout";
 import { APPMAN_SEARCH_SCOPE_OPTIONS, AppManSearchScope } from "../types/provider";
+import { FlatpakInstallScopePreference, FlatpakScopeStatus } from "../types/flatpak";
 import { SteamGridDbStatus } from "../types/steamgriddb";
+
+const FLATPAK_SCOPE_OPTIONS: Array<{
+  value: FlatpakInstallScopePreference;
+  label: string;
+}> = [
+  { value: "automatic", label: "Automatic (recommended)" },
+  { value: "user", label: "User" },
+  { value: "system", label: "System" },
+];
 
 function statusLine(status: SteamGridDbStatus | null): string {
   if (!status) {
@@ -34,21 +48,26 @@ function statusLine(status: SteamGridDbStatus | null): string {
 export default function SettingsRoute(): ReactElement {
   const [status, setStatus] = useState<SteamGridDbStatus | null>(null);
   const [appman, setAppman] = useState<AppManStatusResult | null>(null);
+  const [flatpakScope, setFlatpakScope] = useState<FlatpakScopeStatus | null>(null);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
-    const [next, appmanNext] = await Promise.all([
+    const [next, appmanNext, scopeNext] = await Promise.all([
       getSteamGridDbStatus(),
       getAppmanStatus(),
+      getFlatpakScopeStatus(),
     ]);
     setStatus(next);
     setAppman(appmanNext);
+    setFlatpakScope(scopeNext);
     if (!next.ok) {
       setError(`${next.errorCode}: ${next.errorMessage}`);
     } else if (appmanNext && "ok" in appmanNext && appmanNext.ok === false) {
       setError(`${appmanNext.errorCode}: ${appmanNext.errorMessage}`);
+    } else if (scopeNext && "ok" in scopeNext && scopeNext.ok === false) {
+      setError(`${scopeNext.errorCode}: ${scopeNext.errorMessage}`);
     }
   }, []);
 
@@ -125,6 +144,31 @@ export default function SettingsRoute(): ReactElement {
     }
   };
 
+  const changeFlatpakInstallScope = async (scope: FlatpakInstallScopePreference) => {
+    setBusy(true);
+    setError(null);
+    try {
+      const next = await setFlatpakInstallScope(scope);
+      setFlatpakScope(next);
+      if (!next.ok) {
+        setError(`${next.errorCode}: ${next.errorMessage}`);
+      }
+    } catch (exc) {
+      setError(String(exc));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const installPreference: FlatpakInstallScopePreference =
+    flatpakScope && flatpakScope.ok ? flatpakScope.installScopePreference : "automatic";
+  const resolvedLabel =
+    flatpakScope && flatpakScope.ok
+      ? flatpakScope.resolvedInstallScope
+        ? `New installs use ${flatpakScope.resolvedInstallScope} scope.`
+        : flatpakScope.unavailableReason || "No Flatpak install scope is available."
+      : "Loading Flatpak install scope…";
+
   return (
     <Focusable
       flow-children="column"
@@ -139,6 +183,37 @@ export default function SettingsRoute(): ReactElement {
           artwork. AppMan search scope is separate and does not change Flatpak.
         </div>
       </div>
+
+      <div>
+        <div style={{ fontSize: "22px", fontWeight: 700 }}>Flatpak</div>
+        <div style={{ opacity: 0.75, fontSize: "13px", marginTop: "4px" }}>
+          This setting applies only to new Flatpak installs. Already-installed apps keep
+          their real user or system identity. DeckDepot does not create missing remotes.
+        </div>
+      </div>
+      <div style={{ opacity: 0.9 }}>{resolvedLabel}</div>
+      {flatpakScope && flatpakScope.ok && !flatpakScope.systemMutationsAvailable ? (
+        <div style={{ opacity: 0.8, fontSize: "13px" }}>
+          System management is currently unavailable
+          {flatpakScope.bridge?.reason ? `: ${flatpakScope.bridge.reason}` : "."}
+        </div>
+      ) : null}
+      <DropdownItem
+        label="Default Flatpak install scope"
+        description="Automatic follows the host: user-only → user, system-only → system, both → system."
+        rgOptions={FLATPAK_SCOPE_OPTIONS.map((item) => ({
+          data: item.value,
+          label: item.label,
+        }))}
+        selectedOption={installPreference}
+        disabled={busy || !(flatpakScope && flatpakScope.ok)}
+        onChange={(option) => {
+          const value = option.data as FlatpakInstallScopePreference;
+          if (value && value !== installPreference) {
+            void changeFlatpakInstallScope(value);
+          }
+        }}
+      />
 
       <div>
         <div style={{ fontSize: "22px", fontWeight: 700 }}>Flatpak / SteamGridDB</div>
