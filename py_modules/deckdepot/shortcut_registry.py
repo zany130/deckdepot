@@ -16,6 +16,7 @@ from typing import Any
 import decky
 
 from deckdepot.errors import EngineError
+from deckdepot.appman_ids import validate_appman_name
 from deckdepot.ids import validate_flatpak_app_id
 
 REGISTRY_FILENAME = "shortcut-registry.json"
@@ -115,6 +116,12 @@ def _validate_provider(raw: str) -> str:
     return raw
 
 
+def _validate_app_id(provider: str, raw: str) -> str:
+    if provider == "appman":
+        return validate_appman_name(raw)
+    return validate_flatpak_app_id(raw)
+
+
 def _validate_steam_app_id(raw: Any) -> int:
     if isinstance(raw, bool):
         raise EngineError("INVALID_ARGUMENT", "steam app id must be a positive integer")
@@ -143,7 +150,7 @@ def list_mappings() -> dict[str, Any]:
 def get_mapping(provider: str, installation_scope: str, app_id: str) -> dict[str, Any]:
     provider = _validate_provider(provider)
     installation_scope = _validate_scope(installation_scope)
-    app_id = validate_flatpak_app_id(app_id)
+    app_id = _validate_app_id(provider, app_id)
     key = mapping_key(provider, installation_scope, app_id)
     mapping = _load_registry()["mappings"].get(key)
     return {
@@ -157,7 +164,7 @@ def get_mapping(provider: str, installation_scope: str, app_id: str) -> dict[str
 def upsert_mapping(payload: dict[str, Any]) -> dict[str, Any]:
     provider = _validate_provider(str(payload.get("provider") or ""))
     installation_scope = _validate_scope(str(payload.get("installationScope") or ""))
-    app_id = validate_flatpak_app_id(str(payload.get("appId") or ""))
+    app_id = _validate_app_id(provider, str(payload.get("appId") or ""))
     steam_app_id = _validate_steam_app_id(payload.get("steamAppId"))
     name = str(payload.get("name") or app_id).strip()[:128]
     exe = str(payload.get("exe") or "").strip()
@@ -209,7 +216,7 @@ def upsert_mapping(payload: dict[str, Any]) -> dict[str, Any]:
 def delete_mapping(provider: str, installation_scope: str, app_id: str) -> dict[str, Any]:
     provider = _validate_provider(provider)
     installation_scope = _validate_scope(installation_scope)
-    app_id = validate_flatpak_app_id(app_id)
+    app_id = _validate_app_id(provider, app_id)
     key = mapping_key(provider, installation_scope, app_id)
     registry = _load_registry()
     previous = registry["mappings"].pop(key, None)

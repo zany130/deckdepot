@@ -44,7 +44,28 @@ export interface AppSummary {
   amType?: string | null;
   amDb?: string | null;
   hasUpdater?: boolean;
+  launchSpec?: AppManLaunchSpec;
 }
+
+export type AppManLaunchSpec =
+  | {
+      ok: true;
+      appId: string;
+      exe: string;
+      args?: string[];
+      launchOptions: string;
+      startDir: string;
+      displayName?: string;
+      desktopPath?: string | null;
+      iconPath?: string | null;
+      source?: string;
+    }
+  | {
+      ok: false;
+      appId?: string;
+      errorCode: string;
+      errorMessage: string;
+    };
 
 export interface TaskProgress {
   taskId: string;

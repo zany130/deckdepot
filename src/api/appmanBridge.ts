@@ -1,7 +1,7 @@
 import { callable } from "@decky/api";
 import { CatalogAppDetails, CatalogAppSummary } from "../types/catalog";
 import { AppManSearchScope } from "../types/provider";
-import { EngineErrorResult, InstalledAppsResult, TaskStartResult } from "../types/flatpak";
+import { AppManLaunchSpec, EngineErrorResult, InstalledAppsResult, TaskStartResult } from "../types/flatpak";
 
 export interface AppManStatus {
   ok: true;
@@ -66,6 +66,10 @@ export const getAppmanDetails = callable<
 
 export const getAppmanInstalled = callable<[], InstalledAppsResult>(
   "get_appman_installed"
+);
+
+export const getAppmanLaunchSpec = callable<[appId: string], AppManLaunchSpec>(
+  "get_appman_launch_spec"
 );
 
 export const setAppmanSearchScope = callable<[scope: string], AppManStatusResult>(

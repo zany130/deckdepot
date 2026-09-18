@@ -531,7 +531,7 @@ export default function StoreRoute({
           isAppman ? undefined : () => void inventoryState.enableFlathub()
         }
         onCancelTask={() => void inventoryState.cancelCurrent()}
-        steam={isAppman ? undefined : steam}
+        steam={steam}
       />
     );
   }

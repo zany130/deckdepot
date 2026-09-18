@@ -113,6 +113,9 @@ class Plugin:
     async def get_appman_installed(self) -> dict:
         return await self.flatpak.get_appman_installed()
 
+    async def get_appman_launch_spec(self, app_id: str) -> dict:
+        return await self.flatpak.get_appman_launch_spec(app_id)
+
     async def get_appman_settings(self) -> dict:
         return await self.flatpak.get_appman_settings()
 

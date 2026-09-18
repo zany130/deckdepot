@@ -1,3 +1,5 @@
+import type { ProviderId } from "./provider";
+
 export type SteamShortcutState =
   | "unsupported"
   | "not_added"
@@ -9,7 +11,7 @@ export type SteamShortcutState =
 export type SteamShortcutScope = "user" | "system";
 
 export interface ShortcutMapping {
-  provider: "flatpak";
+  provider: ProviderId;
   appId: string;
   installationScope: SteamShortcutScope;
   steamAppId: number;
@@ -48,12 +50,13 @@ export interface ShortcutCapabilities {
 }
 
 export interface ShortcutTarget {
-  provider: "flatpak";
+  provider: ProviderId;
   appId: string;
   name: string;
   installationScope: SteamShortcutScope;
   exe: string;
   startDir: string;
+  launchOptions?: string;
 }
 
 export type ShortcutResult =

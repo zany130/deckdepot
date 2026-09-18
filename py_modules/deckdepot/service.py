@@ -34,6 +34,7 @@ from deckdepot.appman_engine import (
     get_details as appman_details,
     list_category as appman_category,
     list_installed as appman_installed,
+    resolve_launch_spec as appman_launch_spec,
     search as appman_search,
     status as appman_status,
 )
@@ -199,6 +200,9 @@ class FlatpakService:
 
     async def get_appman_installed(self) -> dict[str, Any]:
         return await await_engine(appman_installed())
+
+    async def get_appman_launch_spec(self, app_id: str) -> dict[str, Any]:
+        return call_engine(appman_launch_spec, app_id)
 
     async def get_appman_settings(self) -> dict[str, Any]:
         return await await_engine(appman_status())

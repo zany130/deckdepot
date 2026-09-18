@@ -24,8 +24,11 @@ export function operationLabel(
     if (stage === "verifying") {
       return "Verifying…";
     }
-    if (stage === "starting" || stage === "installing" || stage === "updating") {
-      return `Adding ${name} to Steam`;
+    if (stage === "updating") {
+      return "Applying artwork…";
+    }
+    if (stage === "starting" || stage === "installing") {
+      return "Adding to Steam…";
     }
   }
   switch (stage) {
@@ -82,7 +85,7 @@ export function failureToast(kind: OperationKind, name: string): string {
     return `Could not remove ${name}`;
   }
   if (kind === "add_to_steam") {
-    return `Could not add ${name} to Steam`;
+    return `Failed to add ${name} to Steam`;
   }
   if (kind === "update_all") {
     return `${name} update failed`;

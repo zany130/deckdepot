@@ -202,6 +202,190 @@ def _desktop_categories(app_id: str) -> str:
     return _desktop_field(app_id, "Categories")
 
 
+DESKTOP_FIELD_CODES = frozenset("fFuUdDnNickvm")
+SAFE_LAUNCH_ARG_RE = re.compile(r"^[A-Za-z0-9_./:=+-]+$")
+
+
+def _parse_desktop_exec(exec_line: str) -> list[str] | None:
+    """Split a desktop-entry Exec= value. Not a shell."""
+    text = (exec_line or "").strip()
+    if not text or "\n" in text or "\x00" in text:
+        return None
+    args: list[str] = []
+    buf: list[str] = []
+    in_quote = False
+    i = 0
+    while i < len(text):
+        ch = text[i]
+        if in_quote:
+            if ch == "\\" and i + 1 < len(text):
+                buf.append(text[i + 1])
+                i += 2
+                continue
+            if ch == '"':
+                in_quote = False
+                i += 1
+                continue
+            buf.append(ch)
+            i += 1
+            continue
+        if ch in " \t":
+            if buf:
+                args.append("".join(buf))
+                buf = []
+            i += 1
+            continue
+        if ch == '"':
+            in_quote = True
+            i += 1
+            continue
+        buf.append(ch)
+        i += 1
+    if in_quote:
+        return None
+    if buf:
+        args.append("".join(buf))
+    return args or None
+
+
+def _strip_desktop_field_codes(args: list[str]) -> list[str]:
+    cleaned: list[str] = []
+    for arg in args:
+        if len(arg) == 2 and arg[0] == "%" and arg[1] in DESKTOP_FIELD_CODES:
+            continue
+        if arg == "%%":
+            cleaned.append("%")
+            continue
+        token = arg.replace("%%", "\x00")
+        if re.search(r"%[" + "".join(DESKTOP_FIELD_CODES) + r"]", token):
+            continue
+        cleaned.append(arg.replace("%%", "%"))
+    return cleaned
+
+
+def _join_launch_options(args: list[str]) -> str:
+    parts: list[str] = []
+    for arg in args:
+        if SAFE_LAUNCH_ARG_RE.fullmatch(arg):
+            parts.append(arg)
+        else:
+            parts.append('"' + arg.replace("\\", "\\\\").replace('"', '\\"') + '"')
+    return " ".join(parts)
+
+
+def _launch_roots() -> list[str]:
+    roots: list[str] = []
+    home = _user_home()
+    roots.append(os.path.realpath(os.path.join(home, ".local", "bin")))
+    location = config_info().get("location")
+    if location:
+        roots.append(os.path.realpath(str(location)))
+    return [root for root in roots if root]
+
+
+def _is_allowed_executable(path: str) -> bool:
+    if not path or not path.startswith("/") or "://" in path:
+        return False
+    if not (os.path.isfile(path) or os.path.islink(path)):
+        return False
+    if not os.access(path, os.X_OK):
+        return False
+    try:
+        real = os.path.realpath(path)
+    except OSError:
+        return False
+    if not os.path.isfile(real) or not os.access(real, os.X_OK):
+        return False
+    return any(real == root or real.startswith(root + os.sep) for root in _launch_roots())
+
+
+def _canonical_bin(app_id: str) -> str | None:
+    home_bin = os.path.join(_user_home(), ".local", "bin", app_id)
+    if _is_allowed_executable(home_bin):
+        return home_bin
+    location = config_info().get("location")
+    if location:
+        nested = os.path.join(str(location), app_id, app_id)
+        if _is_allowed_executable(nested):
+            return nested
+    return None
+
+
+def _is_allowed_dir(path: str) -> bool:
+    if not path or not path.startswith("/"):
+        return False
+    try:
+        real = os.path.realpath(path)
+    except OSError:
+        return False
+    if not os.path.isdir(real):
+        return False
+    return any(real == root or real.startswith(root + os.sep) for root in _launch_roots())
+
+
+def _start_dir_for(exe: str, desktop_path_field: str) -> str:
+    raw = (desktop_path_field or "").strip()
+    if _is_allowed_dir(raw):
+        return raw
+    try:
+        real_exe = os.path.realpath(exe)
+        parent = os.path.dirname(real_exe)
+        if _is_allowed_dir(parent):
+            return parent
+    except OSError:
+        pass
+    parent = os.path.dirname(exe)
+    return parent if parent else "/"
+
+
+def resolve_launch_spec(app_id: str) -> dict[str, Any]:
+    """Resolve Steam shortcut fields from AppMan desktop metadata or the install bin."""
+    app_id = validate_appman_name(app_id)
+    desktop_file = _desktop_path(app_id)
+    display_name = _desktop_field(app_id, "Name") or app_id
+    desktop_path_field = _desktop_field(app_id, "Path")
+    candidates: list[tuple[str, list[str]]] = []
+    if os.path.isfile(desktop_file):
+        parsed = _parse_desktop_exec(_desktop_field(app_id, "Exec"))
+        if parsed:
+            stripped = _strip_desktop_field_codes(parsed)
+            if stripped:
+                candidates.append(("desktop", stripped))
+    canonical = _canonical_bin(app_id)
+    if canonical:
+        candidates.append(("canonical-bin", [canonical]))
+    for source, argv in candidates:
+        exe = argv[0]
+        if not os.path.isabs(exe) or not _is_allowed_executable(exe):
+            continue
+        extra = argv[1:]
+        return {
+            "ok": True,
+            "appId": app_id,
+            "exe": exe,
+            "args": extra,
+            "launchOptions": _join_launch_options(extra),
+            "startDir": _start_dir_for(exe, desktop_path_field),
+            "displayName": display_name,
+            "desktopPath": desktop_file if os.path.isfile(desktop_file) else None,
+            "iconPath": _safe_local_icon_path(_desktop_field(app_id, "Icon")),
+            "source": source,
+        }
+    if not candidates:
+        return {
+            "ok": False,
+            "errorCode": "LAUNCH_METADATA_MISSING",
+            "errorMessage": "AppMan did not provide a usable installed launch target.",
+            "appId": app_id,
+        }
+    return {
+        "ok": False,
+        "errorCode": "LAUNCH_METADATA_INVALID",
+        "errorMessage": "The AppMan launch path is missing, not executable, or outside the AppMan install location.",
+        "appId": app_id,
+    }
+
+
 def _allowed_icon_roots() -> list[str]:
     roots: list[str] = []
     location = config_info().get("location")
@@ -649,8 +833,10 @@ async def get_details(app_id: str, source_id: str = "am") -> dict[str, Any]:
     app["screenshots"] = parsed.get("screenshots") or []
     app["latestVersion"] = parsed.get("installedVersion") if parsed["installedState"] == "installed" else None
     app["bundleRef"] = None
-    app["launchableDesktopId"] = f"{app_id}-AM.desktop" if desktop else None
+    app["launchableDesktopId"] = f"{app_id}-AM.desktop" if os.path.isfile(_desktop_path(app_id)) else None
     app["hasUpdater"] = parsed["installedState"] == "installed" and _has_updater(app_id)
+    if parsed["installedState"] == "installed":
+        app["launchSpec"] = resolve_launch_spec(app_id)
     return {"ok": True, "app": app}
 
 
@@ -695,6 +881,7 @@ def parse_installed_table(stdout: str) -> list[dict[str, Any]]:
             resolve_local_icon=True,
         )
         row["hasUpdater"] = _has_updater(app_id)
+        row["launchSpec"] = resolve_launch_spec(app_id)
         apps.append(row)
     return _dedupe_appman_apps(apps)
 

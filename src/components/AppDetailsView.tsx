@@ -245,9 +245,11 @@ function DetailsBody({
               scope="user"
               installed={userInstalled}
               steam={steam}
+              provider={app.provider}
+              launchSpec={installStatus?.userApp?.launchSpec || app.launchSpec}
             />
           ) : null}
-          {systemInstalled ? (
+          {systemInstalled && app.provider !== "appman" ? (
             <div style={{ marginTop: userInstalled ? "12px" : 0 }}>
               <SteamActions
                 appId={app.appId}
@@ -255,6 +257,7 @@ function DetailsBody({
                 scope="system"
                 installed={systemInstalled}
                 steam={steam}
+                provider={app.provider}
               />
             </div>
           ) : null}

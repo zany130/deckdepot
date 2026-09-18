@@ -241,8 +241,12 @@ async function persistMapping(mapping: ShortcutMapping): Promise<ShortcutMapping
 export async function repairOwnedShortcut(
   mapping: ShortcutMapping
 ): Promise<ShortcutMapping> {
-  const expectedLaunch = shortcutLaunchOptions(mapping.appId, mapping.installationScope);
-  const startDirNeedsRepair = mapping.startDir !== STEAM_FLATPAK_START_DIR;
+  const isFlatpak = (mapping.provider || "flatpak") === "flatpak";
+  const expectedLaunch = isFlatpak
+    ? shortcutLaunchOptions(mapping.appId, mapping.installationScope)
+    : mapping.launchOptions;
+  const expectedStartDir = isFlatpak ? STEAM_FLATPAK_START_DIR : mapping.startDir;
+  const startDirNeedsRepair = mapping.startDir !== expectedStartDir;
   const launchNeedsRepair = mapping.launchOptions !== expectedLaunch;
   const artworkNeedsApply = mapping.artworkGeneration !== STEAM_ARTWORK_GENERATION;
   if (!startDirNeedsRepair && !launchNeedsRepair && !artworkNeedsApply) {
@@ -259,10 +263,10 @@ export async function repairOwnedShortcut(
     const startDirSet = await callShortcutSetter(
       "SetShortcutStartDir",
       mapping.steamAppId,
-      STEAM_FLATPAK_START_DIR
+      expectedStartDir
     );
     if (startDirSet) {
-      next.startDir = STEAM_FLATPAK_START_DIR;
+      next.startDir = expectedStartDir;
       changed = true;
     }
   }
@@ -300,7 +304,7 @@ function mappingFromTarget(
 ): ShortcutMapping {
   const now = Date.now();
   return {
-    provider: "flatpak",
+    provider: target.provider,
     appId: target.appId,
     installationScope: target.installationScope,
     steamAppId,
@@ -376,7 +380,7 @@ export async function getShortcutStatus(
   }
 }
 
-export async function addFlatpakShortcut(target: ShortcutTarget): Promise<ShortcutResult> {
+export async function addOwnedShortcut(target: ShortcutTarget): Promise<ShortcutResult> {
   const caps = probeShortcutCapabilities();
   if (!caps.addShortcut) {
     return fail(
@@ -387,8 +391,12 @@ export async function addFlatpakShortcut(target: ShortcutTarget): Promise<Shortc
   }
 
   const name = sanitizeShortcutName(target.name, target.appId);
-  const launchOptions = shortcutLaunchOptions(target.appId, target.installationScope);
-  const startDir = STEAM_FLATPAK_START_DIR;
+  const launchOptions =
+    target.provider === "flatpak"
+      ? shortcutLaunchOptions(target.appId, target.installationScope)
+      : target.launchOptions || "";
+  const startDir =
+    target.provider === "flatpak" ? STEAM_FLATPAK_START_DIR : target.startDir;
 
   try {
     const existing = await getShortcutMapping(
@@ -495,6 +503,10 @@ export async function addFlatpakShortcut(target: ShortcutTarget): Promise<Shortc
   } catch (exc) {
     return fail("STEAM_OPERATION_FAILED", String(exc));
   }
+}
+
+export async function addFlatpakShortcut(target: ShortcutTarget): Promise<ShortcutResult> {
+  return addOwnedShortcut({ ...target, provider: "flatpak" });
 }
 
 export async function removeFlatpakShortcut(

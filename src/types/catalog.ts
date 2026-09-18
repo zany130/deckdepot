@@ -1,3 +1,4 @@
+import type { AppManLaunchSpec } from "./flatpak";
 import type { AppManSourceId, ProviderId } from "./provider";
 
 export type { AppManSourceId, ProviderId };
@@ -26,6 +27,7 @@ export interface CatalogAppSummary {
   sourceLabel?: string;
   amType?: string | null;
   amDb?: string | null;
+  launchSpec?: AppManLaunchSpec;
 }
 
 export interface CatalogScreenshot {

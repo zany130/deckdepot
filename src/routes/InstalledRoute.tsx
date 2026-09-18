@@ -178,7 +178,6 @@ export default function InstalledRoute(): ReactElement {
             onUninstall={uninstall}
             onUpdate={updateApp}
             steam={steam}
-            showSteamChrome={false}
             onFocusApp={setRestoreAppmanId}
           />
         ) : flatpakScope === "user" ? (
@@ -508,12 +507,11 @@ function InstalledRow({
           {versionLabel(app)}
           {app.origin ? ` · ${app.origin}` : ""}
           {app.provider !== "appman" && onUpdate ? " · update available" : ""}
-          {app.provider !== "appman" &&
-          steam.statusOf(app.appId, scope).state === "added_live"
+          {steam.statusOf(app.appId, scope, app.provider).state === "added_live"
             ? " · on Steam"
             : ""}
-          {app.provider !== "appman" &&
-          steam.statusOf(app.appId, scope).state === "known_from_plugin_registry"
+          {steam.statusOf(app.appId, scope, app.provider).state ===
+          "known_from_plugin_registry"
             ? " · Steam mapping"
             : ""}
         </div>
@@ -523,16 +521,16 @@ function InstalledRow({
           <OperationProgress view={rowView} compact />
         ) : (
           <>
-        {app.provider === "appman" ? null : (
-          <SteamActions
-            appId={app.appId}
-            name={app.name}
-            scope={scope}
-            installed
-            steam={steam}
-            compact
-          />
-        )}
+        <SteamActions
+          appId={app.appId}
+          name={app.name}
+          scope={scope}
+          installed
+          steam={steam}
+          compact
+          provider={app.provider}
+          launchSpec={app.launchSpec}
+        />
         {system && mutationsDisabled ? (
           <div style={{ opacity: 0.7, fontSize: "12px", alignSelf: "center" }}>Read-only</div>
         ) : (

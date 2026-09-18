@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { getAppmanLaunchSpec } from "./appmanBridge";
 import { notifyOperation } from "./notifications";
 import { failureToast, steamOperationView, successToast } from "./operationState";
 import { OperationView } from "../types/operation";
+import { AppManLaunchSpec, EngineErrorResult } from "../types/flatpak";
+import { ProviderId } from "../types/provider";
 import {
   getFlatpakExecutableSpec,
   listShortcutRegistry,
@@ -10,7 +13,7 @@ import {
 import { lookupOverview } from "./steamCapabilities";
 import { probeShortcutCapabilities } from "../steam/capabilityProbe";
 import {
-  addFlatpakShortcut,
+  addOwnedShortcut,
   forgetShortcutMapping,
   removeFlatpakShortcut,
   repairOwnedShortcut,
@@ -21,7 +24,6 @@ import {
   SteamShortcutScope,
   SteamShortcutState,
 } from "../types/steam";
-import { EngineErrorResult } from "../types/flatpak";
 
 export interface SteamShortcutStatus {
   state: SteamShortcutState;
@@ -30,8 +32,8 @@ export interface SteamShortcutStatus {
   steamAppId?: number;
 }
 
-function mappingKey(scope: SteamShortcutScope, appId: string): string {
-  return `${scope}:${appId}`;
+function mappingKey(provider: ProviderId, scope: SteamShortcutScope, appId: string): string {
+  return `${provider}:${scope}:${appId}`;
 }
 
 export function useSteamShortcuts() {
@@ -53,7 +55,6 @@ export function useSteamShortcuts() {
       setExe({ path: spec.path, startDir: spec.startDir });
     } else {
       setExe(null);
-      setError(`${spec.errorCode}: ${spec.errorMessage}`);
     }
     if (list.ok) {
       const repaired: ShortcutMapping[] = [];
@@ -61,9 +62,7 @@ export function useSteamShortcuts() {
         repaired.push(await repairOwnedShortcut(mapping));
       }
       setMappings(repaired);
-      if (spec.ok) {
-        setError(null);
-      }
+      setError(null);
     } else {
       setError(`${list.errorCode}: ${list.errorMessage}`);
     }
@@ -88,17 +87,28 @@ export function useSteamShortcuts() {
   const byKey = useMemo(() => {
     const map = new Map<string, ShortcutMapping>();
     for (const mapping of mappings) {
-      map.set(mappingKey(mapping.installationScope, mapping.appId), mapping);
+      map.set(
+        mappingKey(
+          mapping.provider || "flatpak",
+          mapping.installationScope,
+          mapping.appId
+        ),
+        mapping
+      );
     }
     return map;
   }, [mappings]);
 
   const statusOf = useCallback(
-    (appId: string, scope: SteamShortcutScope): SteamShortcutStatus => {
+    (
+      appId: string,
+      scope: SteamShortcutScope,
+      provider: ProviderId = "flatpak"
+    ): SteamShortcutStatus => {
       if (!capabilities.supported) {
         return { state: "unsupported", mapping: null, overviewPresent: false };
       }
-      const mapping = byKey.get(mappingKey(scope, appId)) ?? null;
+      const mapping = byKey.get(mappingKey(provider, scope, appId)) ?? null;
       if (!mapping) {
         return { state: "not_added", mapping: null, overviewPresent: false };
       }
@@ -136,8 +146,14 @@ export function useSteamShortcuts() {
         setOperation(null);
         return result;
       }
-      setOperation(steamOperationView(kind, "verifying", name, appId));
-      await refresh();
+      if (kind === "add_to_steam") {
+        setOperation(steamOperationView(kind, "updating", name, appId));
+        await refresh();
+        setOperation(steamOperationView(kind, "verifying", name, appId));
+      } else {
+        setOperation(steamOperationView(kind, "verifying", name, appId));
+        await refresh();
+      }
       notifyOperation(successToast(kind, name));
       setOperation(null);
       return result;
@@ -159,7 +175,12 @@ export function useSteamShortcuts() {
   };
 
   const addToSteam = (
-    app: { appId: string; name: string },
+    app: {
+      appId: string;
+      name: string;
+      provider?: ProviderId;
+      launchSpec?: AppManLaunchSpec;
+    },
     scope: SteamShortcutScope
   ) => {
     if (!capabilities.supported) {
@@ -170,24 +191,48 @@ export function useSteamShortcuts() {
         errorMessage: "Steam AddShortcut/RemoveShortcut is not available.",
       });
     }
-    if (!exe) {
-      return Promise.resolve({
-        ok: false as const,
-        state: "error" as const,
-        errorCode: "FLATPAK_NOT_FOUND",
-        errorMessage: "Flatpak executable path is unavailable.",
-      });
-    }
-    return runOp("add_to_steam", app.name, app.appId, () =>
-      addFlatpakShortcut({
+    const provider = app.provider || "flatpak";
+    return runOp("add_to_steam", app.name, app.appId, async () => {
+      if (provider === "appman") {
+        const spec =
+          app.launchSpec && app.launchSpec.ok
+            ? app.launchSpec
+            : await getAppmanLaunchSpec(app.appId);
+        if (!spec.ok) {
+          return {
+            ok: false as const,
+            state: "error" as const,
+            errorCode: spec.errorCode,
+            errorMessage: spec.errorMessage,
+          };
+        }
+        return addOwnedShortcut({
+          provider: "appman",
+          appId: app.appId,
+          name: spec.displayName || app.name,
+          installationScope: "user",
+          exe: spec.exe,
+          startDir: spec.startDir,
+          launchOptions: spec.launchOptions,
+        });
+      }
+      if (!exe) {
+        return {
+          ok: false as const,
+          state: "error" as const,
+          errorCode: "FLATPAK_NOT_FOUND",
+          errorMessage: "Flatpak executable path is unavailable.",
+        };
+      }
+      return addOwnedShortcut({
         provider: "flatpak",
         appId: app.appId,
         name: app.name,
         installationScope: scope,
         exe: exe.path,
         startDir: exe.startDir,
-      })
-    );
+      });
+    });
   };
 
   const runQuiet = async (
@@ -242,20 +287,26 @@ export function useSteamShortcuts() {
     refresh,
     statusOf,
     addToSteam,
-    removeFromSteam: (app: { appId: string; name?: string }, scope: SteamShortcutScope) =>
+    removeFromSteam: (
+      app: { appId: string; name?: string; provider?: ProviderId },
+      scope: SteamShortcutScope
+    ) =>
       runOp("remove_from_steam", app.name || app.appId, app.appId, () =>
         removeFlatpakShortcut({
-          provider: "flatpak",
+          provider: app.provider || "flatpak",
           appId: app.appId,
-          installationScope: scope,
+          installationScope: app.provider === "appman" ? "user" : scope,
         })
       ),
-    forgetMapping: (app: { appId: string }, scope: SteamShortcutScope) =>
+    forgetMapping: (
+      app: { appId: string; provider?: ProviderId },
+      scope: SteamShortcutScope
+    ) =>
       runQuiet(() =>
         forgetShortcutMapping({
-          provider: "flatpak",
+          provider: app.provider || "flatpak",
           appId: app.appId,
-          installationScope: scope,
+          installationScope: app.provider === "appman" ? "user" : scope,
         })
       ),
     resetRegistry: () => runQuiet(() => resetShortcutRegistry()),
