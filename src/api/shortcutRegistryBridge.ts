@@ -42,15 +42,3 @@ export const resetShortcutRegistry = callable<
     }
   | EngineErrorResult
 >("reset_shortcut_registry");
-
-export const inspectShortcutsVdf = callable<
-  [
-    payload: {
-      steamAppId?: number;
-      name?: string;
-      exe?: string;
-      launchOptions?: string;
-    },
-  ],
-  Record<string, unknown> & { ok: boolean }
->("inspect_shortcuts_vdf");

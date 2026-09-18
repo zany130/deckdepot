@@ -3,7 +3,6 @@ import {
   FlathubRemoteResult,
   FlatpakScopeStatus,
   InstalledAppsResult,
-  SessionBridgeCapability,
   TaskProgress,
   TaskStartResult,
   TaskStatusResult,
@@ -30,10 +29,6 @@ export const getFlatpakScopeStatus = callable<[], FlatpakScopeStatus>(
 
 export const setFlatpakInstallScope = callable<[scope: string], FlatpakScopeStatus>(
   "set_flatpak_install_scope"
-);
-
-export const probeSessionBridge = callable<[], SessionBridgeCapability>(
-  "probe_session_bridge"
 );
 
 export const checkFlathubRemote = callable<[], FlathubRemoteResult>(

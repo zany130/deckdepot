@@ -1,10 +1,9 @@
 export const PLUGIN_DISPLAY_NAME = "DeckDepot";
 export const PLUGIN_TAGLINE = "Linux apps, right from Gaming Mode.";
 export const PLUGIN_DESCRIPTION =
-  "Browse, install, update, and manage user Flatpaks and optional AppMan apps from Steam Gaming Mode. Add to Steam is optional; Steam launches the app.";
+  "Browse, install, update, and manage Flatpaks and optional AppMan apps from Steam Gaming Mode. Add to Steam is optional; Steam launches the app.";
 
 export const STORE_ROUTE = "/deckdepot";
-export const DISCOVER_ROUTE = "/deckdepot/discover";
 export const TASK_EVENT_NAME = "deckdepot:task-event";
 export const UPDATE_ALL_APP_ID = "all-user-apps";
 export const SYSTEM_UPDATE_ALL_APP_ID = "all-system-apps";

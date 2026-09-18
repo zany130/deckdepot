@@ -2,32 +2,32 @@
 
 **Linux apps, right from Gaming Mode.**
 
-DeckDepot is a [Decky Loader](https://github.com/SteamDeckHomebrew/decky-loader) plugin. Browse, install, update, and uninstall **user-scoped Flatpaks** from Steam Gaming Mode. [AppMan](https://github.com/ivan-hc/AM) is an optional second provider for portable apps.
+DeckDepot is a [Decky Loader](https://github.com/SteamDeckHomebrew/decky-loader) plugin. Browse, install, update, and uninstall Flatpaks from Steam Gaming Mode. [AppMan](https://github.com/ivan-hc/AM) is an optional second provider for portable apps.
 
 **Add to Steam** is optional. Steam, not DeckDepot, launches the app.
 
 ## Requirements
 
 - Steam Gaming Mode with Decky Loader
-- User-scoped Flatpak and the Flathub remote (DeckDepot can add Flathub for the current user if it is missing)
+- User-scoped and/or system-scoped Flatpak, with Flathub available for the scopes you use
 - AppMan is optional. Install and configure it yourself if you want that provider; DeckDepot does not bundle it
 
-The plugin is unprivileged (`flags: []`). It does not use root.
+The plugin is unprivileged (`flags: []`). It does not use root or custom polkit rules. System Flatpak install, update, and uninstall go through a verified `systemd-run --user` session bridge when the host already allows that path.
 
 ## What it does
 
-- **Flatpak** — search Flathub, browse categories, install and manage user Flatpaks
+- **Flatpak** — search Flathub, browse categories, install and manage user and system Flatpaks
 - **AppMan** — search and manage AppMan apps when AppMan is installed
-- **Installed** — user Flatpaks, AppMan apps, and read-only system Flatpaks
-- **Updates** — Flatpak pending updates, plus AppMan updater actions (AppMan has no pending-update list)
-- **Settings** — optional SteamGridDB API key for Add to Steam artwork, and AppMan search scope
+- **Installed** — user Flatpaks, AppMan apps, and system Flatpaks, kept as distinct identities
+- **Updates** — Flatpak pending updates by scope, plus AppMan updater actions (AppMan has no pending-update list)
+- **Settings** — default Flatpak install scope, optional SteamGridDB API key for Add to Steam artwork, and AppMan search scope
 
 Open it from Decky’s Quick Access menu (**Open DeckDepot**). On some Steam Gaming Mode builds, DeckDepot also appears in Steam’s main menu. That menu row is unofficial and may disappear after a Steam UI update; the QAM button is the supported way in.
 
 ## What it does not do
 
 - It does not launch apps from the plugin
-- It does not install, update, or uninstall system-scoped Flatpaks (those stay visible and read-only)
+- It does not switch Gaming/Desktop sessions
 - It does not remove your apps if you uninstall the plugin (only plugin settings/runtime files)
 
 ## Install

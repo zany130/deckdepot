@@ -180,7 +180,7 @@ export default function SettingsRoute(): ReactElement {
       <div>
         <div style={{ fontSize: "28px", fontWeight: 700 }}>Settings</div>
         <div style={{ opacity: 0.75, fontSize: "13px", marginTop: "4px" }}>
-          Provider settings stay on this page. SteamGridDB is optional Flatpak/Steam
+          Provider settings stay on this page. SteamGridDB is optional Add to Steam
           artwork. AppMan search scope is separate and does not change Flatpak.
         </div>
       </div>

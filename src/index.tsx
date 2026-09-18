@@ -16,7 +16,6 @@ import {
 } from "./api/taskEvents";
 import { openStoreRoute } from "./api/navigation";
 import {
-  DISCOVER_ROUTE,
   PLUGIN_DESCRIPTION,
   PLUGIN_DISPLAY_NAME,
   PLUGIN_TAGLINE,
@@ -47,7 +46,6 @@ export default definePlugin(() => {
   console.log("[DeckDepot] frontend initializing");
   installTaskEventBridge();
   routerHook.addRoute(STORE_ROUTE, DeckDepotShell, { exact: true });
-  routerHook.addRoute(DISCOVER_ROUTE, DeckDepotShell, { exact: true });
   const stopMenuInjection = installSteamMenuInjection();
 
   return {
@@ -63,7 +61,6 @@ export default definePlugin(() => {
         console.log("[DeckDepot] menu injection unload failed", exc);
       }
       routerHook.removeRoute(STORE_ROUTE);
-      routerHook.removeRoute(DISCOVER_ROUTE);
       removeTaskEventBridge();
     },
   };

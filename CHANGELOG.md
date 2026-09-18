@@ -4,6 +4,10 @@
 
 - Manage system-scoped Flatpaks through the verified user-systemd session bridge
 - Restore AppMan detail-page descriptions from catalog/search metadata
+- Stop AppMan installs hanging on curl progress output
+- Show shared operation progress and one success or failure toast per action
+- Fix Settings dropdown sizing
+- Add installed AppMan apps to Steam with the existing shortcut and SteamGridDB artwork path
 
 ## 1.0.0
 

@@ -73,31 +73,6 @@ export function lookupOverview(appId: number): Record<string, unknown> {
   }
 }
 
-export function lookupDetails(appId: number): Record<string, unknown> {
-  const store = (window as unknown as {
-    appDetailsStore?: { GetAppDetails?: (id: number) => unknown };
-  }).appDetailsStore;
-  if (typeof store?.GetAppDetails !== "function") {
-    return { present: false, reason: "appDetailsStore.GetAppDetails missing" };
-  }
-  try {
-    const details = store.GetAppDetails(appId);
-    if (!details || typeof details !== "object") {
-      return { present: false };
-    }
-    const row = details as Record<string, unknown>;
-    return {
-      present: true,
-      strDisplayName: row.strDisplayName ?? null,
-      strShortcutLaunchOptions: row.strShortcutLaunchOptions ?? null,
-      strShortcutExe: row.strShortcutExe ?? null,
-      strShortcutStartDir: row.strShortcutStartDir ?? null,
-    };
-  } catch (exc) {
-    return { present: false, errorMessage: String(exc) };
-  }
-}
-
 export function getApps(): Record<string, unknown> | null {
   return appsObject();
 }
