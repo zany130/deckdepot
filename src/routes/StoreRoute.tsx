@@ -410,6 +410,7 @@ export default function StoreRoute({
       if (!confirmed) {
         return;
       }
+      inventoryState.rememberAppName(app.appId, app.name);
       await inventoryState.installAppman(app.appId, app.sourceId || "am");
       return;
     }
@@ -424,6 +425,7 @@ export default function StoreRoute({
     if (!confirmed) {
       return;
     }
+    inventoryState.rememberAppName(app.appId, app.name);
     await inventoryState.installFlatpak(app.appId, scope);
   };
 
@@ -439,6 +441,7 @@ export default function StoreRoute({
       if (!confirmed) {
         return;
       }
+      inventoryState.rememberAppName(app.appId, app.name);
       await inventoryState.uninstallAppman(app.appId, app.sourceId || "am");
       return;
     }
@@ -451,6 +454,7 @@ export default function StoreRoute({
     if (!confirmed) {
       return;
     }
+    inventoryState.rememberAppName(app.appId, app.name);
     await inventoryState.uninstallFlatpak(app.appId, scope);
   };
 
@@ -466,6 +470,7 @@ export default function StoreRoute({
       if (!confirmed) {
         return;
       }
+      inventoryState.rememberAppName(app.appId, app.name);
       await inventoryState.updateAppman(app.appId, app.sourceId || "am");
       return;
     }
@@ -479,6 +484,7 @@ export default function StoreRoute({
     if (!confirmed) {
       return;
     }
+    inventoryState.rememberAppName(app.appId, app.name);
     await inventoryState.updateFlatpak(app.appId, update?.ref || "", scope);
   };
 

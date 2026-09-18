@@ -1,4 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { notifyOperation } from "./notifications";
+import { viewFromTask } from "./operationState";
 import {
   addFlathubRemote,
   cancelTask,
@@ -62,6 +64,11 @@ export function useFlatpakInventory() {
   const [backendSessionId, setBackendSessionId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const busyRef = useRef(false);
+  const toastedRef = useRef<string | null>(null);
+  const seenActiveRef = useRef<string | null>(null);
+  const namesRef = useRef<Record<string, string>>({});
+  const batchCountRef = useRef<number | undefined>(undefined);
 
   const refresh = useCallback(async () => {
     const [
@@ -189,15 +196,79 @@ export function useFlatpakInventory() {
     };
   }, [refresh, backendSessionId]);
 
+  useEffect(() => {
+    for (const app of inventory.rows) {
+      namesRef.current[app.appId] = app.name;
+    }
+    for (const item of updates) {
+      namesRef.current[item.appId] = item.name;
+    }
+    for (const item of systemUpdates) {
+      namesRef.current[item.appId] = item.name;
+    }
+  }, [inventory.rows, updates, systemUpdates]);
+
+  useEffect(() => {
+    if (!task) {
+      return;
+    }
+    if (isActivePhase(task.phase)) {
+      seenActiveRef.current = task.taskId;
+      return;
+    }
+    if (seenActiveRef.current !== task.taskId) {
+      return;
+    }
+    const key = `${task.taskId}:${task.phase}`;
+    if (toastedRef.current === key) {
+      return;
+    }
+    toastedRef.current = key;
+    if (task.phase !== "completed" && task.phase !== "failed") {
+      return;
+    }
+    const name = namesRef.current[task.appId] || task.appId;
+    const view = viewFromTask(task, name, batchCountRef.current);
+    notifyOperation(view.toast);
+    if (task.operation === "update_all") {
+      batchCountRef.current = undefined;
+    }
+  }, [task]);
+
+  const rememberAppName = (appId: string, name: string) => {
+    namesRef.current[appId] = name;
+  };
+
+  const rememberBatchCount = (count: number) => {
+    batchCountRef.current = count;
+  };
+
+  const taskActive = isActivePhase(task?.phase);
+  const operationView = task
+    ? viewFromTask(
+        task,
+        namesRef.current[task.appId] || task.appId,
+        batchCountRef.current
+      )
+    : null;
+
   const run = async (
-    work: () => Promise<TaskStartResult | TaskStatusResult | FlathubRemoteResult | void>
+    work: () => Promise<TaskStartResult | TaskStatusResult | FlathubRemoteResult | void>,
+    options?: { ignoreActive?: boolean }
   ) => {
+    if (!options?.ignoreActive && (busyRef.current || taskActive)) {
+      return;
+    }
+    busyRef.current = true;
     setBusy(true);
     setError(null);
     try {
       const result = await work();
       if (result && "ok" in result && result.ok === false) {
         setError(friendlyEngineError(result));
+        notifyOperation(
+          result.errorMessage.length <= 80 ? result.errorMessage : "Action failed"
+        );
         return result;
       }
       if (result && "ok" in result && result.ok && "task" in result && result.task) {
@@ -209,13 +280,14 @@ export function useFlatpakInventory() {
       return result;
     } catch (exc) {
       setError(String(exc));
+      notifyOperation("Action failed");
       return undefined;
     } finally {
+      busyRef.current = false;
       setBusy(false);
     }
   };
 
-  const taskActive = isActivePhase(task?.phase);
   const remote = inventory.remote;
   const scopeOk = Boolean(scopeStatus && scopeStatus.ok);
   const resolvedInstallScope =
@@ -262,10 +334,13 @@ export function useFlatpakInventory() {
     userScopeRelevant,
     systemScopeRelevant,
     task,
+    operationView,
     error,
     busy,
     refresh,
     run,
+    rememberAppName,
+    rememberBatchCount,
     taskActive,
     flathubMissing,
     mutationsDisabled,
@@ -292,6 +367,6 @@ export function useFlatpakInventory() {
     updateAllSystem: () => run(() => startUpdateAll("system")),
     enableFlathub: () => run(() => addFlathubRemote()),
     cancelCurrent: () =>
-      task ? run(() => cancelTask(task.taskId)) : Promise.resolve(),
+      task ? run(() => cancelTask(task.taskId), { ignoreActive: true }) : Promise.resolve(),
   };
 }

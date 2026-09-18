@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type ReactElement } from "react";
-import { DialogButton, DropdownItem, Focusable, TextField } from "@decky/ui";
+import { DialogButton, Focusable, TextField } from "@decky/ui";
+import SettingsDropdown from "../components/SettingsDropdown";
 import {
   getAppmanStatus,
   setAppmanSearchScope,
@@ -198,7 +199,7 @@ export default function SettingsRoute(): ReactElement {
           {flatpakScope.bridge?.reason ? `: ${flatpakScope.bridge.reason}` : "."}
         </div>
       ) : null}
-      <DropdownItem
+      <SettingsDropdown
         label="Default Flatpak install scope"
         description="Automatic follows the host: user-only → user, system-only → system, both → system."
         rgOptions={FLATPAK_SCOPE_OPTIONS.map((item) => ({
@@ -266,7 +267,7 @@ export default function SettingsRoute(): ReactElement {
             : "AppMan is not installed for this user. DeckDepot does not vendor it."
           : "Loading AppMan settings…"}
       </div>
-      <DropdownItem
+      <SettingsDropdown
         label="AppMan search scope"
         description="Default uses appman -q. All includes third-party databases. This is not a --pkg query."
         rgOptions={APPMAN_SEARCH_SCOPE_OPTIONS.map((item) => ({

@@ -19,6 +19,9 @@ import {
 } from "../components/storeLayout";
 import { AppSummary, TaskProgress, isActivePhase } from "../types/flatpak";
 import { catalogKey, ProviderId } from "../types/provider";
+import { activeTaskForApp } from "../api/installedInventory";
+import { viewFromTask } from "../api/operationState";
+import OperationProgress from "../components/OperationProgress";
 
 function versionLabel(app: AppSummary): string {
   return app.installedVersion || "Version unavailable";
@@ -60,6 +63,7 @@ export default function InstalledRoute(): ReactElement {
       if (!confirmed) {
         return;
       }
+      state.rememberAppName(app.appId, app.name);
       await state.uninstallAppman(app.appId, app.sourceId || "am");
       return;
     }
@@ -76,6 +80,7 @@ export default function InstalledRoute(): ReactElement {
     if (!confirmed) {
       return;
     }
+    state.rememberAppName(app.appId, app.name);
     await state.uninstallFlatpak(app.appId, scope);
   };
 
@@ -91,6 +96,7 @@ export default function InstalledRoute(): ReactElement {
       if (!confirmed) {
         return;
       }
+      state.rememberAppName(app.appId, app.name);
       await state.updateAppman(app.appId, app.sourceId || "am");
       return;
     }
@@ -111,6 +117,7 @@ export default function InstalledRoute(): ReactElement {
     if (!confirmed) {
       return;
     }
+    state.rememberAppName(app.appId, app.name);
     await state.updateFlatpak(app.appId, update.ref, scope);
   };
 
@@ -165,6 +172,7 @@ export default function InstalledRoute(): ReactElement {
             mutationsDisabled={state.appmanMutationsDisabled}
             busy={state.busy}
             task={state.task}
+            operationView={state.operationView}
             onRefresh={() => void state.refresh()}
             onCancelTask={() => void state.cancelCurrent()}
             onUninstall={uninstall}
@@ -184,6 +192,7 @@ export default function InstalledRoute(): ReactElement {
             mutationsDisabled={state.userMutationsDisabled}
             busy={state.busy}
             task={state.task}
+            operationView={state.operationView}
             onEnableFlathub={() => void state.enableFlathub()}
             onRefresh={() => void state.refresh()}
             onCancelTask={() => void state.cancelCurrent()}
@@ -224,6 +233,7 @@ export default function InstalledRoute(): ReactElement {
             mutationsDisabled={state.systemMutationsDisabled}
             busy={state.busy}
             task={state.task}
+            operationView={state.operationView}
             steam={steam}
             onFocusApp={setRestoreSystemId}
             onBumper={showScopeToggle ? cycleScope : undefined}
@@ -245,6 +255,7 @@ function InstalledPane({
   mutationsDisabled,
   busy,
   task,
+  operationView,
   onEnableFlathub,
   onRefresh,
   onCancelTask,
@@ -266,6 +277,7 @@ function InstalledPane({
   mutationsDisabled?: boolean;
   busy?: boolean;
   task?: TaskProgress | null;
+  operationView?: ReturnType<typeof viewFromTask> | null;
   onEnableFlathub?: () => void;
   onRefresh?: () => void;
   onCancelTask?: () => void;
@@ -284,6 +296,12 @@ function InstalledPane({
       ? scope === "user"
       : (task.installationScope || "user") === scope)
       ? task
+      : null;
+  const scopeView =
+    taskForScope && isActivePhase(taskForScope.phase)
+      ? operationView && operationView.appId === taskForScope.appId
+        ? operationView
+        : viewFromTask(taskForScope, taskForScope.appId)
       : null;
   const showUserChrome = scope === "user";
 
@@ -376,25 +394,23 @@ function InstalledPane({
         </div>
       ) : null}
 
-      {taskForScope ? (
+      {taskForScope && scopeView?.active ? (
         <div style={{ marginBottom: "12px" }}>
-          <div style={{ opacity: 0.85, fontSize: "13px", marginBottom: taskActive ? "8px" : 0 }}>
-            {taskForScope.operation} {taskForScope.appId} · {taskForScope.phase}
-            {taskForScope.statusText ? ` · ${taskForScope.statusText}` : ""}
-          </div>
-          {taskForScope.errorMessage ? (
-            <div style={{ color: "#ff8a8a", marginBottom: "8px" }}>{taskForScope.errorMessage}</div>
-          ) : null}
-          {taskActive && onCancelTask ? (
-            <DialogButton
-              disabled={taskForScope.phase === "cancelling"}
-              onClick={onCancelTask}
-              style={{ width: "220px" }}
-            >
-              Cancel
-            </DialogButton>
-          ) : null}
+          <Focusable flow-children="row" style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
+            <OperationProgress view={scopeView} />
+            {taskActive && onCancelTask && taskForScope.phase !== "verifying" ? (
+              <DialogButton
+                disabled={taskForScope.phase === "cancelling"}
+                onClick={onCancelTask}
+                style={{ width: "220px" }}
+              >
+                Cancel
+              </DialogButton>
+            ) : null}
+          </Focusable>
         </div>
+      ) : taskForScope?.errorMessage && !taskActive ? (
+        <div style={{ color: "#ff8a8a", marginBottom: "12px" }}>{taskForScope.errorMessage}</div>
       ) : null}
 
       {apps.length === 0 ? (
@@ -416,6 +432,7 @@ function InstalledPane({
               system={scope === "system"}
               mutationsDisabled={Boolean(mutationsDisabled)}
               preferredFocus={restoreAppId === catalogKey(app)}
+              task={task}
               onUninstall={onUninstall}
               onUpdate={
                 (app.provider === "appman" && app.hasUpdater) ||
@@ -438,6 +455,7 @@ function InstalledRow({
   system,
   mutationsDisabled,
   preferredFocus,
+  task,
   onUninstall,
   onUpdate,
   steam,
@@ -447,6 +465,7 @@ function InstalledRow({
   system?: boolean;
   mutationsDisabled?: boolean;
   preferredFocus?: boolean;
+  task?: TaskProgress | null;
   onUninstall?: (app: AppSummary) => void;
   onUpdate?: (app: AppSummary) => void;
   steam: ReturnType<typeof useSteamShortcuts>;
@@ -455,6 +474,9 @@ function InstalledRow({
   const [focused, setFocused] = useState(false);
   const scope = system ? "system" : "user";
   const canMutate = Boolean(onUninstall || onUpdate) && !mutationsDisabled;
+  const appTask = activeTaskForApp(task ?? null, app.appId, app.provider, scope);
+  const rowView =
+    appTask && appTask.operation !== "update_all" ? viewFromTask(appTask, app.name) : null;
   return (
     <Focusable
       preferredFocus={preferredFocus}
@@ -496,7 +518,11 @@ function InstalledRow({
             : ""}
         </div>
       </div>
-      <Focusable flow-children="row" style={{ display: "flex", gap: "8px", flexShrink: 0, flexWrap: "wrap", justifyContent: "flex-end" }}>
+      <Focusable flow-children="row" style={{ display: "flex", gap: "8px", flexShrink: 0, flexWrap: "wrap", justifyContent: "flex-end", alignItems: "center" }}>
+        {rowView?.active ? (
+          <OperationProgress view={rowView} compact />
+        ) : (
+          <>
         {app.provider === "appman" ? null : (
           <SteamActions
             appId={app.appId}
@@ -529,6 +555,8 @@ function InstalledRow({
                 Uninstall
               </DialogButton>
             ) : null}
+          </>
+        )}
           </>
         )}
       </Focusable>

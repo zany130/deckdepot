@@ -1,4 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { notifyOperation } from "./notifications";
+import { failureToast, steamOperationView, successToast } from "./operationState";
+import { OperationView } from "../types/operation";
 import {
   getFlatpakExecutableSpec,
   listShortcutRegistry,
@@ -37,6 +40,8 @@ export function useSteamShortcuts() {
   const [exe, setExe] = useState<{ path: string; startDir: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [operation, setOperation] = useState<OperationView | null>(null);
+  const busyRef = useRef(false);
 
   const refresh = useCallback(async () => {
     setCapabilities(probeShortcutCapabilities());
@@ -110,22 +115,37 @@ export function useSteamShortcuts() {
     [byKey, capabilities.overviewLookup, capabilities.supported]
   );
 
-  const run = async (
+  const runOp = async (
+    kind: "add_to_steam" | "remove_from_steam",
+    name: string,
+    appId: string,
     work: () => Promise<ShortcutResult | EngineErrorResult | { ok: true }>
   ) => {
+    if (busyRef.current) {
+      return;
+    }
+    busyRef.current = true;
     setBusy(true);
     setError(null);
+    setOperation(steamOperationView(kind, kind === "remove_from_steam" ? "removing" : "installing", name, appId));
     try {
       const result = await work();
       if ("ok" in result && result.ok === false) {
         setError(`${result.errorCode}: ${result.errorMessage}`);
+        notifyOperation(failureToast(kind, name));
+        setOperation(null);
         return result;
       }
+      setOperation(steamOperationView(kind, "verifying", name, appId));
       await refresh();
+      notifyOperation(successToast(kind, name));
+      setOperation(null);
       return result;
     } catch (exc) {
       const message = String(exc);
       setError(message);
+      notifyOperation(failureToast(kind, name));
+      setOperation(null);
       return {
         ok: false as const,
         state: "error" as const,
@@ -133,6 +153,7 @@ export function useSteamShortcuts() {
         errorMessage: message,
       };
     } finally {
+      busyRef.current = false;
       setBusy(false);
     }
   };
@@ -157,7 +178,7 @@ export function useSteamShortcuts() {
         errorMessage: "Flatpak executable path is unavailable.",
       });
     }
-    return run(() =>
+    return runOp("add_to_steam", app.name, app.appId, () =>
       addFlatpakShortcut({
         provider: "flatpak",
         appId: app.appId,
@@ -167,6 +188,38 @@ export function useSteamShortcuts() {
         startDir: exe.startDir,
       })
     );
+  };
+
+  const runQuiet = async (
+    work: () => Promise<ShortcutResult | EngineErrorResult | { ok: true }>
+  ) => {
+    if (busyRef.current) {
+      return;
+    }
+    busyRef.current = true;
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await work();
+      if ("ok" in result && result.ok === false) {
+        setError(`${result.errorCode}: ${result.errorMessage}`);
+        return result;
+      }
+      await refresh();
+      return result;
+    } catch (exc) {
+      const message = String(exc);
+      setError(message);
+      return {
+        ok: false as const,
+        state: "error" as const,
+        errorCode: "STEAM_OPERATION_FAILED",
+        errorMessage: message,
+      };
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
+    }
   };
 
   const staleCount = mappings.filter((mapping) => {
@@ -182,14 +235,15 @@ export function useSteamShortcuts() {
     exe,
     busy,
     error,
+    operation,
     unsupported: !capabilities.supported,
     readbackUnavailable: capabilities.supported && !capabilities.overviewLookup,
     staleCount,
     refresh,
     statusOf,
     addToSteam,
-    removeFromSteam: (app: { appId: string }, scope: SteamShortcutScope) =>
-      run(() =>
+    removeFromSteam: (app: { appId: string; name?: string }, scope: SteamShortcutScope) =>
+      runOp("remove_from_steam", app.name || app.appId, app.appId, () =>
         removeFlatpakShortcut({
           provider: "flatpak",
           appId: app.appId,
@@ -197,13 +251,13 @@ export function useSteamShortcuts() {
         })
       ),
     forgetMapping: (app: { appId: string }, scope: SteamShortcutScope) =>
-      run(() =>
+      runQuiet(() =>
         forgetShortcutMapping({
           provider: "flatpak",
           appId: app.appId,
           installationScope: scope,
         })
       ),
-    resetRegistry: () => run(() => resetShortcutRegistry()),
+    resetRegistry: () => runQuiet(() => resetShortcutRegistry()),
   };
 }

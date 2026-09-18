@@ -15,8 +15,10 @@ import {
   embeddedPageStyle,
   focusOutline,
 } from "../components/storeLayout";
-import { AppSummary, TaskProgress, UserUpdate, isActivePhase } from "../types/flatpak";
+import { AppSummary, UserUpdate, isActivePhase } from "../types/flatpak";
 import { catalogKey, ProviderId } from "../types/provider";
+import { viewFromTask } from "../api/operationState";
+import OperationProgress from "../components/OperationProgress";
 
 function dedupeAppman(apps: AppSummary[]): AppSummary[] {
   const seen = new Map<string, AppSummary>();
@@ -75,6 +77,7 @@ export default function UpdatesRoute(): ReactElement {
     if (!confirmed) {
       return;
     }
+    state.rememberAppName(update.appId, update.name);
     await state.updateFlatpak(update.appId, update.ref, scope);
   };
 
@@ -86,6 +89,7 @@ export default function UpdatesRoute(): ReactElement {
     if (!confirmed) {
       return;
     }
+    state.rememberAppName(app.appId, app.name);
     await state.updateAppman(app.appId, app.sourceId || "am");
   };
 
@@ -99,6 +103,7 @@ export default function UpdatesRoute(): ReactElement {
     if (!confirmed) {
       return;
     }
+    state.rememberBatchCount(flatpakUpdates.length);
     if (flatpakScope === "system") {
       await state.updateAllSystem();
       return;
@@ -114,6 +119,7 @@ export default function UpdatesRoute(): ReactElement {
     if (!confirmed) {
       return;
     }
+    state.rememberBatchCount(appmanManaged.length);
     await state.updateAllAppman();
   };
 
@@ -139,8 +145,21 @@ export default function UpdatesRoute(): ReactElement {
         onChange={(id) => setProvider(id as ProviderId)}
       />
 
-      {state.task ? (
-        <TaskChrome task={state.task} onCancel={() => void state.cancelCurrent()} />
+      {state.operationView?.active ? (
+        <Focusable flow-children="row" style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
+          <OperationProgress view={state.operationView} />
+          {isActivePhase(state.task?.phase) && state.task?.phase !== "verifying" ? (
+            <DialogButton
+              disabled={state.task?.phase === "cancelling"}
+              onClick={() => void state.cancelCurrent()}
+              style={{ width: "220px" }}
+            >
+              Cancel
+            </DialogButton>
+          ) : null}
+        </Focusable>
+      ) : state.task?.errorMessage && !isActivePhase(state.task.phase) ? (
+        <div style={{ color: "#ff8a8a" }}>{state.task.errorMessage}</div>
       ) : null}
 
       {provider === "flatpak" ? (
@@ -225,7 +244,15 @@ export default function UpdatesRoute(): ReactElement {
               }
               style={{ display: "flex", flexDirection: "column", gap: "8px" }}
             >
-              {flatpakUpdates.map((update) => (
+              {flatpakUpdates.map((update) => {
+                const rowTask =
+                  state.task &&
+                  isActivePhase(state.task.phase) &&
+                  state.task.operation !== "update_all" &&
+                  state.task.appId === update.appId
+                    ? state.operationView
+                    : null;
+                return (
                 <UpdateRow
                   key={`${update.installationScope || "user"}:${update.ref || update.appId}`}
                   title={update.name}
@@ -234,10 +261,12 @@ export default function UpdatesRoute(): ReactElement {
                   }`}
                   preferredFocus={restoreFlatpakId === update.appId}
                   disabled={mutationsDisabled}
+                  operationView={rowTask}
                   onUpdate={() => void requestFlatpakUpdate(update)}
                   onFocused={() => setRestoreFlatpakId(update.appId)}
                 />
-              ))}
+                );
+              })}
             </Focusable>
           ) : null}
         </>
@@ -282,7 +311,15 @@ export default function UpdatesRoute(): ReactElement {
               }
               style={{ display: "flex", flexDirection: "column", gap: "8px" }}
             >
-              {appmanManaged.map((app) => (
+              {appmanManaged.map((app) => {
+                const rowTask =
+                  state.task &&
+                  isActivePhase(state.task.phase) &&
+                  state.task.operation !== "update_all" &&
+                  state.task.appId === app.appId
+                    ? state.operationView
+                    : null;
+                return (
                 <UpdateRow
                   key={catalogKey(app)}
                   title={app.name}
@@ -291,10 +328,12 @@ export default function UpdatesRoute(): ReactElement {
                   }`}
                   preferredFocus={restoreAppmanId === catalogKey(app)}
                   disabled={state.appmanMutationsDisabled}
+                  operationView={rowTask}
                   onUpdate={() => void requestAppmanUpdate(app)}
                   onFocused={() => setRestoreAppmanId(catalogKey(app))}
                 />
-              ))}
+                );
+              })}
             </Focusable>
           )}
         </>
@@ -303,42 +342,12 @@ export default function UpdatesRoute(): ReactElement {
   );
 }
 
-function TaskChrome({
-  task,
-  onCancel,
-}: {
-  task: TaskProgress;
-  onCancel: () => void;
-}): ReactElement {
-  const taskActive = isActivePhase(task.phase);
-  return (
-    <div>
-      <div style={{ opacity: 0.85, fontSize: "13px", marginBottom: taskActive ? "8px" : 0 }}>
-        {task.provider} · {task.operation} {task.appId} · {task.phase}
-        {task.statusText ? ` · ${task.statusText}` : ""}
-        {" · progress is phase-only, not a percentage"}
-      </div>
-      {task.errorMessage ? (
-        <div style={{ color: "#ff8a8a", marginBottom: "8px" }}>{task.errorMessage}</div>
-      ) : null}
-      {taskActive ? (
-        <DialogButton
-          disabled={task.phase === "cancelling"}
-          onClick={onCancel}
-          style={{ width: "220px" }}
-        >
-          Cancel
-        </DialogButton>
-      ) : null}
-    </div>
-  );
-}
-
 function UpdateRow({
   title,
   subtitle,
   preferredFocus,
   disabled,
+  operationView,
   onUpdate,
   onFocused,
 }: {
@@ -346,6 +355,7 @@ function UpdateRow({
   subtitle: string;
   preferredFocus?: boolean;
   disabled?: boolean;
+  operationView?: ReturnType<typeof viewFromTask> | null;
   onUpdate: () => void;
   onFocused: () => void;
 }): ReactElement {
@@ -375,6 +385,9 @@ function UpdateRow({
         </div>
         <div style={{ opacity: 0.75, fontSize: "13px" }}>{subtitle}</div>
       </div>
+      {operationView?.active ? (
+        <OperationProgress view={operationView} compact />
+      ) : (
       <DialogButton
         disabled={disabled}
         onClick={onUpdate}
@@ -382,6 +395,7 @@ function UpdateRow({
       >
         Update
       </DialogButton>
+      )}
     </Focusable>
   );
 }

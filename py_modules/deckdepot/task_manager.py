@@ -43,10 +43,8 @@ from deckdepot.redact import redact_text
 
 TASK_EVENT_NAME = "deckdepot:task-event"
 CANCEL_GRACE_SEC = 8
-STATUS_EMIT_INTERVAL_SEC = 0.4
-ACTIVE_PHASES = {"queued", "starting", "running", "cancelling"}
+ACTIVE_PHASES = {"queued", "starting", "running", "verifying", "cancelling"}
 PUMP_CHUNK_SIZE = 4096
-PUMP_STATUS_TAIL = 8192
 PUMP_DRAIN_TIMEOUT_SEC = 3
 
 
@@ -54,10 +52,28 @@ def _now_ms() -> int:
     return int(time.time() * 1000)
 
 
-def _status_from_bytes(data: bytes) -> str:
-    text = data.decode("utf-8", "replace").replace("\r\n", "\n").replace("\r", "\n")
-    parts = [part.strip() for part in text.split("\n") if part.strip()]
-    return parts[-1][:200] if parts else ""
+def _phase_status(operation: str, phase: str) -> str:
+    if phase in {"queued", "starting"}:
+        return "Starting…"
+    if phase == "verifying":
+        return "Verifying…"
+    if phase == "cancelling":
+        return "Cancelling…"
+    if phase == "cancelled":
+        return "Cancelled"
+    if phase == "failed":
+        return "Failed"
+    if phase == "completed":
+        if operation == "install":
+            return "Installed"
+        if operation == "uninstall":
+            return "Removed"
+        return "Updated"
+    if operation == "install":
+        return "Installing…"
+    if operation == "uninstall":
+        return "Removing…"
+    return "Updating…"
 
 
 class TaskManager:
@@ -196,7 +212,7 @@ class TaskManager:
                 "operation": operation,
                 "phase": "queued",
                 "progressKind": "indeterminate",
-                "statusText": f"{operation} queued",
+                "statusText": _phase_status(operation, "queued"),
                 "createdAtMs": _now_ms(),
                 "updatedAtMs": _now_ms(),
             }
@@ -215,7 +231,9 @@ class TaskManager:
                 raise EngineError("INVALID_ARGUMENT", f"unknown task {task_id}")
             if task["phase"] not in {"queued", "starting", "running"}:
                 return {"ok": True, "task": dict(task), "alreadyFinished": True}
-            self._set_phase(task, "cancelling", status_text="cancelling")
+            self._set_phase(
+                task, "cancelling", status_text=_phase_status(task["operation"], "cancelling")
+            )
             proc = self._proc
         await self._emit(task)
         log_info(f"task {task_id} cancelling")
@@ -261,12 +279,18 @@ class TaskManager:
         task = self._tasks[task_id]
         try:
             if task["phase"] == "cancelling":
-                self._set_phase(task, "cancelled", status_text="cancelled")
+                self._set_phase(
+                    task, "cancelled", status_text=_phase_status(task["operation"], "cancelled")
+                )
                 return
-            self._set_phase(task, "starting", status_text="starting")
+            self._set_phase(
+                task, "starting", status_text=_phase_status(task["operation"], "starting")
+            )
             await self._emit(task)
             if task["phase"] == "cancelling":
-                self._set_phase(task, "cancelled", status_text="cancelled")
+                self._set_phase(
+                    task, "cancelled", status_text=_phase_status(task["operation"], "cancelled")
+                )
                 return
             if task.get("provider") == "appman":
                 proc = await spawn_appman_mutation(
@@ -316,7 +340,9 @@ class TaskManager:
                 except ProcessLookupError:
                     pass
             else:
-                self._set_phase(task, "running", status_text="running")
+                self._set_phase(
+                    task, "running", status_text=_phase_status(task["operation"], "running")
+                )
                 await self._emit(task)
             stdout, stderr, exit_code = await self._wait(proc, timeout, task)
             cancelled = task["phase"] == "cancelling"
@@ -324,7 +350,7 @@ class TaskManager:
                 self._set_phase(
                     task,
                     "cancelled",
-                    status_text="cancelled",
+                    status_text=_phase_status(task["operation"], "cancelled"),
                     exit_code=exit_code,
                 )
             elif task.get("provider") == "appman":
@@ -332,19 +358,26 @@ class TaskManager:
                     task, stdout, stderr, exit_code, timeout
                 )
             elif exit_code == 0:
+                self._set_phase(
+                    task,
+                    "verifying",
+                    status_text=_phase_status(task["operation"], "verifying"),
+                    exit_code=0,
+                )
+                await self._emit(task)
                 verified, verify_error = await _verify_flatpak_result(task)
                 if verified:
                     self._set_phase(
                         task,
                         "completed",
-                        status_text="completed",
+                        status_text=_phase_status(task["operation"], "completed"),
                         exit_code=0,
                     )
                 else:
                     self._set_phase(
                         task,
                         "failed",
-                        status_text="failed",
+                        status_text=_phase_status(task["operation"], "failed"),
                         exit_code=0,
                         error_message=verify_error
                         or "Command finished but installed state did not change as expected.",
@@ -360,7 +393,7 @@ class TaskManager:
                 self._set_phase(
                     task,
                     "failed",
-                    status_text="failed",
+                    status_text=_phase_status(task["operation"], "failed"),
                     exit_code=exit_code,
                     error_message=redact_text(error_message),
                 )
@@ -369,7 +402,7 @@ class TaskManager:
             self._set_phase(
                 task,
                 "failed",
-                status_text="failed",
+                status_text=_phase_status(task.get("operation") or "install", "failed"),
                 error_message=exc.message,
             )
             task["errorCode"] = exc.code
@@ -377,7 +410,7 @@ class TaskManager:
             self._set_phase(
                 task,
                 "failed",
-                status_text="failed",
+                status_text=_phase_status(task.get("operation") or "install", "failed"),
                 error_message=f"{type(exc).__name__}: {exc}",
             )
             task["errorCode"] = "INTERNAL_ERROR"
@@ -433,12 +466,19 @@ class TaskManager:
             self._set_phase(
                 task,
                 "failed",
-                status_text="timed out",
+                status_text=_phase_status(task["operation"], "failed"),
                 exit_code=exit_code,
                 error_message=f"AppMan {task['operation']} timed out after {timeout}s. {output}",
             )
             task["errorCode"] = "PROCESS_TIMEOUT"
             return
+        self._set_phase(
+            task,
+            "verifying",
+            status_text=_phase_status(task["operation"], "verifying"),
+            exit_code=exit_code,
+        )
+        await self._emit(task)
         verified, verify_error = await _verify_appman_result(task)
         operation = task["operation"]
         # AppMan 10.5-1 often prints INSTALLATION ABORTED after a wget2/curl
@@ -449,14 +489,14 @@ class TaskManager:
                 self._set_phase(
                     task,
                     "completed",
-                    status_text="completed",
+                    status_text=_phase_status(operation, "completed"),
                     exit_code=exit_code,
                 )
                 return
             self._set_phase(
                 task,
                 "failed",
-                status_text="failed",
+                status_text=_phase_status(operation, "failed"),
                 exit_code=exit_code,
                 error_message=redact_text(
                     verify_error
@@ -471,14 +511,14 @@ class TaskManager:
                 self._set_phase(
                     task,
                     "completed",
-                    status_text="completed",
+                    status_text=_phase_status(operation, "completed"),
                     exit_code=exit_code,
                 )
                 return
             self._set_phase(
                 task,
                 "failed",
-                status_text="failed",
+                status_text=_phase_status(operation, "failed"),
                 exit_code=exit_code,
                 error_message=redact_text(
                     verify_error
@@ -492,14 +532,14 @@ class TaskManager:
             self._set_phase(
                 task,
                 "completed",
-                status_text="completed",
+                status_text=_phase_status(operation, "completed"),
                 exit_code=exit_code,
             )
             return
         self._set_phase(
             task,
             "failed",
-            status_text="failed",
+            status_text=_phase_status(operation, "failed"),
             exit_code=exit_code,
             error_message=redact_text(
                 verify_error or output or "AppMan command failed"
@@ -515,14 +555,11 @@ class TaskManager:
     ) -> tuple[str, str, int | None]:
         stdout_chunks: list[bytes] = []
         stderr_chunks: list[bytes] = []
-        last_emit = 0.0
         started = time.monotonic()
 
         async def _pump(stream: asyncio.StreamReader | None, store: list[bytes]) -> None:
-            nonlocal last_emit
             if stream is None:
                 return
-            pending = b""
             while True:
                 # Chunk reads, not readline(): curl/wget progress uses `\r` with
                 # no newline and will fill the pipe until the parent drains it.
@@ -530,16 +567,6 @@ class TaskManager:
                 if not chunk:
                     return
                 store.append(chunk)
-                pending = (pending + chunk)[-PUMP_STATUS_TAIL:]
-                text = _status_from_bytes(pending)
-                if not text or task["phase"] not in {"running", "cancelling"}:
-                    continue
-                task["statusText"] = text[:200]
-                task["updatedAtMs"] = _now_ms()
-                now = time.monotonic()
-                if now - last_emit >= STATUS_EMIT_INTERVAL_SEC:
-                    last_emit = now
-                    await self._emit(task)
 
         pumpers = [
             asyncio.create_task(_pump(proc.stdout, stdout_chunks)),

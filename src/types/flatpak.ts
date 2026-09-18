@@ -14,6 +14,7 @@ export type TaskPhase =
   | "queued"
   | "starting"
   | "running"
+  | "verifying"
   | "cancelling"
   | "completed"
   | "failed"
@@ -175,6 +176,7 @@ export function isActivePhase(phase: TaskPhase | undefined): boolean {
     phase === "queued" ||
     phase === "starting" ||
     phase === "running" ||
+    phase === "verifying" ||
     phase === "cancelling"
   );
 }

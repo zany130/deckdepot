@@ -1,6 +1,7 @@
 import { DialogButton, Focusable } from "@decky/ui";
 import type { ReactElement } from "react";
 import { confirmAction } from "./confirmAction";
+import OperationProgress from "./OperationProgress";
 import { SteamShortcutScope, SteamShortcutState } from "../types/steam";
 import { SteamShortcutStatus, useSteamShortcuts } from "../api/useSteamShortcuts";
 
@@ -50,6 +51,10 @@ export default function SteamActions({
 
   const added =
     status.state === "added_live" || status.state === "known_from_plugin_registry";
+  const thisOperation =
+    steam.operation && steam.operation.appId === appId && steam.operation.active
+      ? steam.operation
+      : null;
   const disabled = steam.busy || !steam.exe;
 
   const add = async () => {
@@ -73,7 +78,7 @@ export default function SteamActions({
     if (!confirmed) {
       return;
     }
-    await steam.removeFromSteam({ appId }, scope);
+    await steam.removeFromSteam({ appId, name }, scope);
   };
 
   const forget = async () => {
@@ -95,7 +100,9 @@ export default function SteamActions({
         </div>
       )}
       <Focusable flow-children="row" style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-        {added ? (
+        {thisOperation ? (
+          <OperationProgress view={thisOperation} compact={compact} />
+        ) : added ? (
           <DialogButton disabled={disabled} onClick={() => void remove()} style={{ width: compact ? "150px" : undefined }}>
             Remove from Steam
           </DialogButton>

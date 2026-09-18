@@ -7,7 +7,9 @@ import {
 import { useEffect, useState, type ReactElement } from "react";
 import { catalogErrorText } from "../api/flathubClient";
 import { AppInstallStatus, activeTaskForApp } from "../api/installedInventory";
+import { viewFromTask } from "../api/operationState";
 import { useSteamShortcuts } from "../api/useSteamShortcuts";
+import OperationProgress from "./OperationProgress";
 import SteamActions from "./SteamActions";
 import { CatalogAppDetails, CatalogFailure } from "../types/catalog";
 import { InstallationScope, TaskProgress } from "../types/flatpak";
@@ -361,6 +363,7 @@ function InstallActions({
     provider !== "appman"
       ? Boolean(onInstall) && Boolean(resolvedInstallScope) && !alreadyInResolvedScope && !flathubMissing
       : Boolean(onInstall) && !userInstalled;
+  const view = appTask ? viewFromTask(appTask, name) : null;
   return (
     <section>
       <h2 style={sectionTitle}>Install</h2>
@@ -390,17 +393,21 @@ function InstallActions({
           not create a missing remote unless you enable it here.
         </div>
       ) : null}
-      {appTask ? (
-        <div style={{ opacity: 0.9, marginBottom: "10px" }}>
-          {appTask.operation} · {appTask.installationScope || "user"} · {appTask.phase}
-          {appTask.statusText ? ` · ${appTask.statusText}` : ""}
-          {" · progress is phase-only, not a percentage"}
-        </div>
-      ) : null}
       {actionError ? (
         <div style={{ color: "#ff8a8a", marginBottom: "10px" }}>{actionError}</div>
       ) : null}
-      <Focusable flow-children="row" style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+      <Focusable flow-children="row" style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
+        {view?.active ? (
+          <>
+            <OperationProgress view={view} />
+            {onCancelTask && appTask && appTask.phase !== "verifying" ? (
+              <DialogButton disabled={appTask.phase === "cancelling"} onClick={onCancelTask}>
+                Cancel
+              </DialogButton>
+            ) : null}
+          </>
+        ) : (
+          <>
         {flathubMissing && onEnableFlathub ? (
           <DialogButton disabled={userMutationsDisabled} onClick={onEnableFlathub}>
             Enable Flathub
@@ -448,11 +455,8 @@ function InstallActions({
             Uninstall system
           </DialogButton>
         ) : null}
-        {appTask && onCancelTask ? (
-          <DialogButton disabled={appTask.phase === "cancelling"} onClick={onCancelTask}>
-            Cancel
-          </DialogButton>
-        ) : null}
+          </>
+        )}
       </Focusable>
     </section>
   );
