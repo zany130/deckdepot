@@ -1,0 +1,11 @@
+{
+  "name": "DeckDepot",
+  "author": "Andres",
+  "flags": [],
+  "api_version": 1,
+  "publish": {
+    "tags": ["flatpak", "flathub", "appman", "apps", "linux"],
+    "description": "Linux apps, right from Gaming Mode.",
+    "image": "https://raw.githubusercontent.com/zany130/deckdepot/main/assets/store.png"
+  }
+}
