@@ -33,6 +33,23 @@ def validate_flatpak_app_id(raw: str) -> str:
 
 
 REF_RE = re.compile(r"^[A-Za-z0-9._-]+$")
+REMOTE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+MAX_REMOTE_NAME_BYTES = 64
+
+
+def validate_remote_name(raw: str) -> str:
+    if not isinstance(raw, str):
+        raise EngineError("INVALID_ARGUMENT", "remote name must be a string")
+    name = raw.strip()
+    if any(ord(ch) < 32 for ch in name):
+        raise EngineError("INVALID_ARGUMENT", "remote name contains control characters")
+    if "/" in name or "\\" in name or " " in name:
+        raise EngineError("INVALID_ARGUMENT", "remote name is invalid")
+    if len(name.encode("utf-8")) > MAX_REMOTE_NAME_BYTES:
+        raise EngineError("INVALID_ARGUMENT", "remote name is too long")
+    if not REMOTE_NAME_RE.fullmatch(name):
+        raise EngineError("INVALID_ARGUMENT", "remote name is invalid")
+    return name
 
 
 def validate_flatpak_ref(raw: str, *, app_id: str) -> str:

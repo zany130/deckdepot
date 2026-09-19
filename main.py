@@ -44,11 +44,20 @@ class Plugin:
     async def get_tasks(self) -> dict:
         return await self.flatpak.get_tasks()
 
-    async def start_install(self, app_id: str, installation_scope: str = "") -> dict:
+    async def start_install(
+        self,
+        app_id: str,
+        installation_scope: str = "",
+        remote_name: str = "",
+        ref: str = "",
+    ) -> dict:
         log_info(
-            f"RPC start_install app_id={app_id} scope={installation_scope or 'auto'}"
+            f"RPC start_install app_id={app_id} scope={installation_scope or 'auto'} "
+            f"remote={remote_name or 'default'}"
         )
-        return await self.flatpak.start_install(app_id, installation_scope)
+        return await self.flatpak.start_install(
+            app_id, installation_scope, remote_name, ref
+        )
 
     async def start_update(
         self, app_id: str, ref: str = "", installation_scope: str = ""
@@ -76,6 +85,13 @@ class Plugin:
     async def set_flatpak_install_scope(self, scope: str) -> dict:
         log_info(f"RPC set_flatpak_install_scope scope={scope}")
         return await self.flatpak.set_flatpak_install_scope(scope)
+
+    async def get_flatpak_content_filters(self) -> dict:
+        return await self.flatpak.get_flatpak_content_filters()
+
+    async def set_flatpak_content_filters(self, updates: dict | None = None) -> dict:
+        log_info("RPC set_flatpak_content_filters")
+        return await self.flatpak.set_flatpak_content_filters(updates)
 
     async def probe_session_bridge(self) -> dict:
         log_info("RPC probe_session_bridge")
@@ -122,6 +138,43 @@ class Plugin:
     async def set_appman_search_scope(self, scope: str) -> dict:
         log_info(f"RPC set_appman_search_scope scope={scope}")
         return await self.flatpak.set_appman_search_scope(scope)
+
+    async def get_flatpak_catalog_remotes(self) -> dict:
+        return await self.flatpak.get_flatpak_catalog_remotes()
+
+    async def get_flatpak_host_policy(self, refresh: bool = False) -> dict:
+        return await self.flatpak.get_flatpak_host_policy(refresh)
+
+    async def search_flatpak_catalog(self, query: str, refresh: bool = False) -> dict:
+        log_info("RPC search_flatpak_catalog")
+        return await self.flatpak.search_flatpak_catalog(query, refresh)
+
+    async def list_flatpak_category_extras(self, slug: str, refresh: bool = False) -> dict:
+        return await self.flatpak.list_flatpak_category_extras(slug, refresh)
+
+    async def get_flatpak_host_details(
+        self,
+        app_id: str,
+        installation_scope: str = "",
+        remote_name: str = "",
+        ref: str = "",
+        branch: str = "",
+        arch: str = "",
+        refresh: bool = False,
+    ) -> dict:
+        return await self.flatpak.get_flatpak_host_details(
+            app_id,
+            installation_scope,
+            remote_name,
+            ref,
+            branch,
+            arch,
+            refresh,
+        )
+
+    async def refresh_flatpak_catalog(self) -> dict:
+        log_info("RPC refresh_flatpak_catalog")
+        return await self.flatpak.refresh_flatpak_catalog()
 
     async def cancel_task(self, task_id: str) -> dict:
         log_info(f"RPC cancel_task task_id={task_id}")

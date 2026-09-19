@@ -1,6 +1,6 @@
 {
   "name": "deckdepot",
-  "version": "1.0.2",
+  "version": "1.1.0",
   "description": "Browse, install, update, and manage Flatpaks and optional AppMan apps from Steam Gaming Mode. Add to Steam is optional; Steam launches the app.",
   "type": "module",
   "scripts": {

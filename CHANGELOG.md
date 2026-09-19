@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.1.0
+
+- Discover, search, and install from already-configured enumeratable Flatpak remotes, not only Flathub
+- Keep one card per remote and branch, with source labels when more than Flathub is visible
+- Install the selected remote and ref; Settings Automatic/User/System still only chooses the default Flathub scope
+- Merge third-party AppStream categories into the existing tabs, and skip `no-enumerate` remotes in Discover
+- Fall back to local AppStream details and data-URL icons when Flathub metadata is not the source
+- Hide apps the host's system Flatpak policy filters from Discover and Search, including User-scope copies of the same source; Installed management is unchanged
+- Add Settings Content Filters for free software, Flathub-only results, Flathub verification, end-of-life apps, and distro policy, applied only to Flatpak Browse/Search
+
 ## 1.0.2
 
 - Open Installed Flatpak details even when Flathub has no matching catalog record

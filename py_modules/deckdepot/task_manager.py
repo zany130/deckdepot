@@ -27,8 +27,10 @@ from deckdepot.flatpak_engine import (
     SYSTEM_UPDATE_ALL_APP_ID,
     SYSTEM_UPDATE_ALL_ARGS,
     UPDATE_ALL_APP_ID,
+    confirm_named_remote_ref,
     confirm_remote_app_for_scope,
     find_installed_scopes,
+    is_flathub_remote,
     list_installed,
     mutation_argv,
     require_installed_in_scope,
@@ -38,7 +40,7 @@ from deckdepot.flatpak_scope import resolve_new_install_scope
 from deckdepot.session_bridge import probe_capability, spawn_system_flatpak, stop_bridged_unit
 from deckdepot.system_inventory import list_system_installed
 from deckdepot.plugin_files import load_interrupted_task, persist_interrupted_task
-from deckdepot.ids import validate_flatpak_app_id, validate_flatpak_ref
+from deckdepot.ids import validate_flatpak_app_id, validate_flatpak_ref, validate_remote_name
 from deckdepot.redact import redact_text
 
 TASK_EVENT_NAME = "deckdepot:task-event"
@@ -132,9 +134,11 @@ class TaskManager:
         provider: str = "flatpak",
         source_id: str = "am",
         installation_scope: str | None = None,
+        remote_name: str | None = None,
     ) -> dict[str, Any]:
         if provider not in {"flatpak", "appman"}:
             raise EngineError("INVALID_ARGUMENT", "unsupported provider")
+        requested_remote_name = remote_name
         remote_name = None
         if operation == "update_all":
             if provider == "flatpak":
@@ -174,19 +178,49 @@ class TaskManager:
             requested = (installation_scope or "").strip().lower() or None
             if requested not in {None, "user", "system"}:
                 raise EngineError("INVALID_ARGUMENT", "installation scope must be user or system")
-            remote_name = None
+            requested_remote = (requested_remote_name or "").strip() or None
+            if requested_remote:
+                requested_remote = validate_remote_name(requested_remote)
             if operation == "install":
-                installation_scope = await resolve_new_install_scope(requested)
-                if installation_scope == "system":
-                    await _require_system_bridge()
-                remote_name = await confirm_remote_app_for_scope(app_id, installation_scope)
+                from deckdepot.flatpak_catalog import reject_denied_install
+
+                await reject_denied_install(app_id)
+                third_party = bool(
+                    requested_remote and not is_flathub_remote(requested_remote)
+                )
+                if third_party:
+                    if requested not in {"user", "system"}:
+                        raise EngineError(
+                            "INVALID_ARGUMENT",
+                            "Third-party Flatpak installs require an explicit user or system scope.",
+                        )
+                    installation_scope = requested
+                    if installation_scope == "system":
+                        await _require_system_bridge()
+                    confirmed_remote, confirmed_ref = await confirm_named_remote_ref(
+                        app_id,
+                        installation_scope,
+                        requested_remote,
+                        ref,
+                    )
+                    remote_name = confirmed_remote
+                    ref = confirmed_ref
+                else:
+                    installation_scope = await resolve_new_install_scope(requested)
+                    if installation_scope == "system":
+                        await _require_system_bridge()
+                    remote_name = await confirm_remote_app_for_scope(
+                        app_id, installation_scope
+                    )
+                    if ref:
+                        ref = validate_flatpak_ref(ref, app_id=app_id)
             else:
                 installation_scope = await _resolve_existing_scope(app_id, requested)
                 if installation_scope == "system":
                     await _require_system_bridge()
             if operation == "update" and ref:
                 ref = validate_flatpak_ref(ref, app_id=app_id)
-            else:
+            elif operation != "install":
                 ref = None
 
         async with self._lock:
@@ -329,6 +363,8 @@ class TaskManager:
                     task["operation"],
                     task["appId"],
                     ref=task.get("ref"),
+                    scope=str(task.get("installationScope") or "user"),
+                    remote_name=str(task.get("remoteName") or "flathub"),
                 )
                 timeout = COMMAND_TIMEOUT_SEC[
                     "update" if task["operation"] == "update_all" else task["operation"]

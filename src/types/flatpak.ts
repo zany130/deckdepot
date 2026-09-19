@@ -116,7 +116,17 @@ export type FlathubRemoteResult =
       ok: true;
       present: boolean;
       remoteName: string;
-      remotes: Array<{ name: string; title: string; url: string }>;
+      remotes: Array<{
+        name: string;
+        title: string;
+        url: string;
+        priority?: number;
+        enumeratable?: boolean;
+        noEnumerate?: boolean;
+        filtered?: boolean;
+        isFlathub?: boolean;
+        displayTitle?: string;
+      }>;
       flatpakPath?: string;
       alreadyPresent?: boolean;
       added?: boolean;
@@ -184,8 +194,22 @@ export type FlatpakScopeStatus =
       systemMutationsAvailable: boolean;
       userRemoteName?: string | null;
       systemRemoteName?: string | null;
-      userRemotes?: Array<{ name: string; title: string; url: string }>;
-      systemRemotes?: Array<{ name: string; title: string; url: string }>;
+      userRemotes?: Array<{
+        name: string;
+        title: string;
+        url: string;
+        enumeratable?: boolean;
+        displayTitle?: string;
+        isFlathub?: boolean;
+      }>;
+      systemRemotes?: Array<{
+        name: string;
+        title: string;
+        url: string;
+        enumeratable?: boolean;
+        displayTitle?: string;
+        isFlathub?: boolean;
+      }>;
       userRemoteError?: EngineErrorResult | null;
       systemRemoteError?: EngineErrorResult | null;
       bridge?: SessionBridgeCapability;

@@ -2,7 +2,7 @@ import type { AppManLaunchSpec } from "./flatpak";
 import type { AppManSourceId, ProviderId } from "./provider";
 
 export type { AppManSourceId, ProviderId };
-export { catalogKey } from "./provider";
+export { catalogKey, isFlathubSource } from "./provider";
 
 export type CatalogErrorCode = "NETWORK_ERROR" | "REMOTE_SCHEMA_ERROR";
 
@@ -29,6 +29,15 @@ export interface CatalogAppSummary {
   amDb?: string | null;
   launchSpec?: AppManLaunchSpec;
   origin?: string;
+  installationScope?: "user" | "system";
+  remoteName?: string;
+  branch?: string;
+  arch?: string;
+  ref?: string;
+  projectLicense?: string;
+  isFreeLicense?: boolean;
+  verificationVerified?: boolean;
+  isEol?: boolean;
 }
 
 export interface CatalogScreenshot {
@@ -56,6 +65,14 @@ export interface CatalogSearchSuccess {
   page: number;
   totalPages: number;
   droppedHitCount: number;
+  warnings?: CatalogRemoteWarning[];
+  partialFailure?: boolean;
+  failedSourceLabels?: string[];
+}
+
+export interface CatalogRemoteWarning {
+  remoteName: string;
+  errorMessage: string;
 }
 
 export interface CatalogDetailsSuccess {
@@ -65,6 +82,14 @@ export interface CatalogDetailsSuccess {
 
 export type CatalogSearchResult = CatalogSearchSuccess | CatalogFailure;
 export type CatalogDetailsResult = CatalogDetailsSuccess | CatalogFailure;
+
+export interface HostPolicySuccess {
+  ok: true;
+  determined: boolean;
+  deniedAppIds: string[];
+}
+
+export type HostPolicyResult = HostPolicySuccess | CatalogFailure;
 
 export function isCatalogFailure(
   result: { ok: boolean }

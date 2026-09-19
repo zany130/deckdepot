@@ -187,6 +187,9 @@ function DetailsBody({
             {app.provider === "appman"
               ? app.sourceLabel || "AppMan"
               : `Flatpak${flatpakOriginLabel(app, installStatus)}`}
+            {app.provider !== "appman" && app.installationScope && !userInstalled && !systemInstalled
+              ? ` · ${app.installationScope}`
+              : ""}
             {userInstalled ? " · User install" : ""}
             {systemInstalled ? " · Installed system-wide" : ""}
           </div>
@@ -282,7 +285,10 @@ function DetailsBody({
           {[
             app.sourceLabel ? `Source: ${app.sourceLabel}` : null,
             app.provider !== "appman"
-              ? `Origin: ${installedOrigin(app, installStatus) || "Flathub"}`
+              ? `Origin: ${installedOrigin(app, installStatus) || app.sourceLabel || app.remoteName || "Flathub"}`
+              : null,
+            app.installationScope && !userInstalled && !systemInstalled
+              ? `Scope: ${app.installationScope}`
               : null,
             userInstalled ? "Scope: user" : null,
             systemInstalled ? "Scope: system" : null,
@@ -554,7 +560,7 @@ function flatpakOriginLabel(
   app: CatalogAppDetails,
   installStatus?: AppInstallStatus
 ): string {
-  const origin = installedOrigin(app, installStatus) || "Flathub";
+  const origin = installedOrigin(app, installStatus) || app.sourceLabel || app.remoteName || "Flathub";
   return ` · ${origin}`;
 }
 

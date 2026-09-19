@@ -1,12 +1,21 @@
 import { useCallback, useEffect, useState, type ReactElement } from "react";
-import { DialogButton, Focusable, TextField } from "@decky/ui";
+import { DialogButton, Focusable, TextField, ToggleField } from "@decky/ui";
 import SettingsDropdown from "../components/SettingsDropdown";
+import {
+  CONTENT_FILTER_ROWS,
+  ensureContentFiltersLoaded,
+  getContentFilters,
+  persistContentFilter,
+  subscribeContentFilters,
+  type ContentFilters,
+} from "../api/contentFilters";
 import {
   getAppmanStatus,
   setAppmanSearchScope,
   type AppManStatusResult,
 } from "../api/appmanBridge";
 import {
+  getFlatpakCatalogRemotes,
   getFlatpakScopeStatus,
   setFlatpakInstallScope,
 } from "../api/flatpakBridge";
@@ -50,19 +59,33 @@ export default function SettingsRoute(): ReactElement {
   const [status, setStatus] = useState<SteamGridDbStatus | null>(null);
   const [appman, setAppman] = useState<AppManStatusResult | null>(null);
   const [flatpakScope, setFlatpakScope] = useState<FlatpakScopeStatus | null>(null);
+  const [discoverRemotes, setDiscoverRemotes] = useState<string[]>([]);
+  const [contentFilters, setContentFilters] = useState<ContentFilters>(getContentFilters);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
-    const [next, appmanNext, scopeNext] = await Promise.all([
+    const [next, appmanNext, scopeNext, remotesNext, filtersNext] = await Promise.all([
       getSteamGridDbStatus(),
       getAppmanStatus(),
       getFlatpakScopeStatus(),
+      getFlatpakCatalogRemotes(),
+      ensureContentFiltersLoaded(),
     ]);
     setStatus(next);
     setAppman(appmanNext);
     setFlatpakScope(scopeNext);
+    setContentFilters(filtersNext);
+    if (remotesNext && "ok" in remotesNext && remotesNext.ok) {
+      const labels = remotesNext.enumeratable.map(
+        (remote) =>
+          `${remote.title || remote.name} (${remote.installationScope})`
+      );
+      setDiscoverRemotes(labels);
+    } else {
+      setDiscoverRemotes([]);
+    }
     if (!next.ok) {
       setError(`${next.errorCode}: ${next.errorMessage}`);
     } else if (appmanNext && "ok" in appmanNext && appmanNext.ok === false) {
@@ -81,6 +104,10 @@ export default function SettingsRoute(): ReactElement {
       }
     })();
   }, [refresh]);
+
+  useEffect(() => {
+    return subscribeContentFilters(() => setContentFilters(getContentFilters()));
+  }, []);
 
   const save = async () => {
     setBusy(true);
@@ -188,11 +215,19 @@ export default function SettingsRoute(): ReactElement {
       <div>
         <div style={{ fontSize: "22px", fontWeight: 700 }}>Flatpak</div>
         <div style={{ opacity: 0.75, fontSize: "13px", marginTop: "4px" }}>
-          This setting applies only to new Flatpak installs. Already-installed apps keep
-          their real user or system identity. DeckDepot does not create missing remotes.
+          This setting chooses the default Flathub install when both user and system
+          Flathub remotes exist. It does not hide other configured remotes, and
+          DeckDepot does not create missing remotes. Already-installed apps keep
+          their real user or system identity.
         </div>
       </div>
       <div style={{ opacity: 0.9 }}>{resolvedLabel}</div>
+      {discoverRemotes.length > 0 ? (
+        <div style={{ opacity: 0.8, fontSize: "13px" }}>
+          Discover uses: {discoverRemotes.join(", ")}. Remotes marked not to
+          enumerate stay on Installed only.
+        </div>
+      ) : null}
       {flatpakScope && flatpakScope.ok && !flatpakScope.systemMutationsAvailable ? (
         <div style={{ opacity: 0.8, fontSize: "13px" }}>
           System management is currently unavailable
@@ -201,7 +236,7 @@ export default function SettingsRoute(): ReactElement {
       ) : null}
       <SettingsDropdown
         label="Default Flatpak install scope"
-        description="Automatic follows the host: user-only → user, system-only → system, both → system."
+        description="Automatic follows the host for Flathub: user-only → user, system-only → system, both → system. Third-party remotes keep the scope they are configured in."
         rgOptions={FLATPAK_SCOPE_OPTIONS.map((item) => ({
           data: item.value,
           label: item.label,
@@ -215,6 +250,28 @@ export default function SettingsRoute(): ReactElement {
           }
         }}
       />
+
+      <div>
+        <div style={{ fontSize: "22px", fontWeight: 700 }}>Content Filters</div>
+      </div>
+      {CONTENT_FILTER_ROWS.map((row) => (
+        <ToggleField
+          key={row.key}
+          label={row.label}
+          description={row.description}
+          checked={contentFilters[row.key]}
+          disabled={busy}
+          highlightOnFocus
+          onChange={(checked) => {
+            setBusy(true);
+            setError(null);
+            void persistContentFilter(row.key, checked)
+              .then((next) => setContentFilters(next))
+              .catch((exc) => setError(String(exc)))
+              .finally(() => setBusy(false));
+          }}
+        />
+      ))}
 
       <div>
         <div style={{ fontSize: "22px", fontWeight: 700 }}>Flatpak / SteamGridDB</div>

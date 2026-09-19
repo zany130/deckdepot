@@ -347,8 +347,12 @@ export function useFlatpakInventory() {
     userMutationsDisabled,
     systemMutationsDisabled,
     appmanMutationsDisabled,
-    installFlatpak: (appId: string, scope?: InstallationScope) =>
-      run(() => startInstall(appId, scope)),
+    installFlatpak: (
+      appId: string,
+      scope?: InstallationScope,
+      remoteName?: string,
+      ref?: string
+    ) => run(() => startInstall(appId, scope, remoteName, ref)),
     uninstallFlatpak: (appId: string, scope: InstallationScope) =>
       run(() => startUninstall(appId, scope)),
     updateFlatpak: (appId: string, ref: string, scope: InstallationScope) =>

@@ -31,8 +31,9 @@ LIST_ARGS = (
     "--app",
     f"--columns={','.join(LIST_COLUMNS)}",
 )
-REMOTE_LIST_ARGS = ("remotes", "--user", "--columns=name,title,url")
-SYSTEM_REMOTE_LIST_ARGS = ("remotes", "--system", "--columns=name,title,url")
+REMOTE_COLUMNS = "name,title,url,priority,options,filter"
+REMOTE_LIST_ARGS = ("remotes", "--user", f"--columns={REMOTE_COLUMNS}")
+SYSTEM_REMOTE_LIST_ARGS = ("remotes", "--system", f"--columns={REMOTE_COLUMNS}")
 FLATHUB_REMOTE = "flathub"
 FLATHUB_REPO = "https://dl.flathub.org/repo/flathub.flatpakrepo"
 UPDATE_ALL_APP_ID = "all-user-apps"
@@ -57,6 +58,8 @@ COMMAND_TIMEOUT_SEC = {
     "remote_info": 30,
     "remote_add": 60,
     "remote_ls": 60,
+    "search": 30,
+    "appstream": 20,
     "install": 300,
     "update": 300,
     "uninstall": 180,
@@ -204,8 +207,12 @@ async def list_installed() -> dict[str, Any]:
     return parsed
 
 
-def parse_remotes_output(stdout: str) -> list[dict[str, str]]:
-    remotes = []
+def _split_options(raw: str) -> set[str]:
+    return {item.strip() for item in (raw or "").split(",") if item.strip() and item.strip() != "-"}
+
+
+def parse_remotes_output(stdout: str) -> list[dict[str, Any]]:
+    remotes: list[dict[str, Any]] = []
     for line in (stdout or "").splitlines():
         if not line.strip():
             continue
@@ -213,17 +220,47 @@ def parse_remotes_output(stdout: str) -> list[dict[str, str]]:
         name = parts[0].strip() if parts else ""
         if not name:
             continue
+        title = parts[1].strip() if len(parts) > 1 else ""
+        if title in {"", "-"}:
+            title = ""
+        url = parts[2].strip() if len(parts) > 2 else ""
+        priority_raw = parts[3].strip() if len(parts) > 3 else "0"
+        try:
+            priority = int(priority_raw)
+        except ValueError:
+            priority = 0
+        options = _split_options(parts[4] if len(parts) > 4 else "")
+        filter_path = parts[5].strip() if len(parts) > 5 else ""
+        if filter_path == "-":
+            filter_path = ""
+        disabled = "disabled" in options
+        no_enumerate = "no-enumerate" in options
         remotes.append(
             {
                 "name": name,
-                "title": parts[1] if len(parts) > 1 else "",
-                "url": parts[2] if len(parts) > 2 else "",
+                "title": title,
+                "url": url,
+                "priority": priority,
+                "options": sorted(options),
+                "filter": filter_path,
+                "disabled": disabled,
+                "noEnumerate": no_enumerate,
+                "filtered": "filtered" in options,
+                "enumeratable": (not disabled) and (not no_enumerate),
+                "displayTitle": title or name,
+                "isFlathub": is_flathub_remote(name, url),
             }
         )
     return remotes
 
 
-def flathub_remote_name(remotes: list[dict[str, str]]) -> str | None:
+def is_flathub_remote(name: str, url: str = "") -> bool:
+    if (name or "").strip().lower() == FLATHUB_REMOTE:
+        return True
+    return "flathub.org" in (url or "").lower()
+
+
+def flathub_remote_name(remotes: list[dict[str, Any]]) -> str | None:
     named = next((remote["name"] for remote in remotes if remote["name"] == FLATHUB_REMOTE), None)
     if named:
         return named
@@ -379,6 +416,54 @@ async def confirm_remote_app_for_scope(app_id: str, scope: str) -> str:
     return remote_name
 
 
+async def confirm_named_remote_ref(
+    app_id: str,
+    scope: str,
+    remote_name: str,
+    ref: str | None = None,
+) -> tuple[str, str | None]:
+    """Confirm an already-configured enumeratable remote owns this install target."""
+    from deckdepot.ids import validate_remote_name
+
+    app_id = validate_flatpak_app_id(app_id)
+    remote_name = validate_remote_name(remote_name)
+    remotes = await list_remotes_for_scope(scope)
+    found = next(
+        (row for row in remotes.get("remotes") or [] if row.get("name") == remote_name),
+        None,
+    )
+    if not found:
+        raise EngineError(
+            "INVALID_ARGUMENT",
+            f"The {scope}-scoped remote {remote_name} is not configured.",
+            details={"installationScope": scope, "remoteName": remote_name},
+        )
+    if found.get("disabled") or found.get("noEnumerate"):
+        raise EngineError(
+            "INVALID_ARGUMENT",
+            f"{remote_name} is not available in Discover.",
+            details={"installationScope": scope, "remoteName": remote_name},
+        )
+    target = validate_flatpak_ref(ref, app_id=app_id) if ref else app_id
+    flag = "--user" if scope == "user" else "--system"
+    command = await run_flatpak(
+        ["remote-info", flag, remote_name, target],
+        timeout_sec=COMMAND_TIMEOUT_SEC["remote_info"],
+        extra_env={"LC_ALL": "C", "LANG": "C.UTF-8"},
+    )
+    if command["exitCode"] != 0:
+        raise EngineError(
+            "INVALID_ARGUMENT",
+            f"{target} was not found on the {scope}-scoped {remote_name} remote.",
+            details={
+                "stderr": (command["stderr"] or "")[:1500],
+                "installationScope": scope,
+                "remoteName": remote_name,
+            },
+        )
+    return remote_name, (target if ref else None)
+
+
 def mutation_argv(
     operation: str,
     app_id: str,
@@ -387,12 +472,16 @@ def mutation_argv(
     scope: str = "user",
     remote_name: str = FLATHUB_REMOTE,
 ) -> list[str]:
+    from deckdepot.ids import validate_remote_name
+
     app_id = validate_flatpak_app_id(app_id)
     if scope not in {"user", "system"}:
         raise EngineError("INVALID_ARGUMENT", "scope must be user or system")
     flag = "--user" if scope == "user" else "--system"
     if operation == "install":
-        return ["install", flag, "-y", "--noninteractive", remote_name, app_id]
+        remote = validate_remote_name(remote_name or FLATHUB_REMOTE)
+        target = validate_flatpak_ref(ref, app_id=app_id) if ref else app_id
+        return ["install", flag, "-y", "--noninteractive", remote, target]
     if operation == "update":
         target = validate_flatpak_ref(ref, app_id=app_id) if ref else app_id
         return ["update", flag, "-y", "--noninteractive", target]
@@ -405,12 +494,21 @@ async def spawn_mutation(
     operation: str,
     app_id: str,
     ref: str | None = None,
+    *,
+    scope: str = "user",
+    remote_name: str = FLATHUB_REMOTE,
 ) -> asyncio.subprocess.Process:
     path = require_flatpak_path()
     if operation == "update_all":
         args = list(UPDATE_ALL_ARGS)
     else:
-        args = mutation_argv(operation, app_id, ref)
+        args = mutation_argv(
+            operation,
+            app_id,
+            ref,
+            scope=scope,
+            remote_name=remote_name,
+        )
     env = sanitized_host_env()
     env["LC_ALL"] = "C.UTF-8"
     env["LANG"] = "C.UTF-8"

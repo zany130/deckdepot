@@ -30,6 +30,7 @@ export default function AppTile({
   onFocused,
   badge,
   focusRef,
+  showSourceChip = false,
 }: {
   app: CatalogAppSummary;
   preferredFocus?: boolean;
@@ -38,6 +39,7 @@ export default function AppTile({
   onFocused?: () => void;
   badge?: CatalogBadge;
   focusRef?: Ref<HTMLDivElement>;
+  showSourceChip?: boolean;
 }): ReactElement {
   const [focused, setFocused] = useState(false);
   const [brokenIcon, setBrokenIcon] = useState(false);
@@ -145,6 +147,11 @@ export default function AppTile({
       {app.provider === "appman" ? (
         <div style={{ opacity: 0.55, fontSize: "10px", textTransform: "uppercase" }}>
           {app.sourceLabel || "AppMan"}
+        </div>
+      ) : showSourceChip && app.sourceLabel ? (
+        <div style={{ opacity: 0.55, fontSize: "10px", textTransform: "uppercase" }}>
+          {app.sourceLabel}
+          {app.branch && app.branch !== "stable" ? ` · ${app.branch}` : ""}
         </div>
       ) : null}
     </Focusable>

@@ -164,6 +164,10 @@ function toSummary(hit: {
   icon?: string | null;
   main_categories?: string | null;
   developer_name?: string | null;
+  project_license?: string | null;
+  is_free_license?: boolean | null;
+  verification_verified?: boolean | null;
+  is_eol?: boolean | null;
 }): CatalogAppSummary | null {
   const appId = hit.app_id.trim();
   const name = hit.name.trim();
@@ -180,6 +184,15 @@ function toSummary(hit: {
     categories,
     developerName: hit.developer_name?.trim() || undefined,
     installedState: "unknown",
+    remoteName: "flathub",
+    sourceLabel: "Flathub",
+    origin: "flathub",
+    branch: "stable",
+    projectLicense: hit.project_license?.trim() || undefined,
+    isFreeLicense: typeof hit.is_free_license === "boolean" ? hit.is_free_license : undefined,
+    verificationVerified:
+      typeof hit.verification_verified === "boolean" ? hit.verification_verified : undefined,
+    isEol: typeof hit.is_eol === "boolean" ? hit.is_eol : undefined,
   };
 }
 
@@ -295,6 +308,7 @@ function toDetails(value: unknown): CatalogDetailsResult {
       break;
     }
   }
+  const verifiedMeta = data.metadata?.["flathub::verification::verified"];
   return {
     ok: true,
     app: {
@@ -308,11 +322,17 @@ function toDetails(value: unknown): CatalogDetailsResult {
       installedState: "unknown",
       descriptionText: htmlToPlainText(data.description) || undefined,
       projectLicense: data.project_license?.trim() || undefined,
+      isFreeLicense: typeof data.is_free_license === "boolean" ? data.is_free_license : undefined,
+      verificationVerified: typeof verifiedMeta === "boolean" ? verifiedMeta : undefined,
+      isEol: typeof data.is_eol === "boolean" ? data.is_eol : undefined,
       homepageUrl: httpsUrl(data.urls?.homepage),
       screenshots,
       launchableDesktopId: data.launchable?.value?.trim() || undefined,
       bundleRef: data.bundle?.value?.trim() || undefined,
       latestVersion: latest || null,
+      remoteName: "flathub",
+      sourceLabel: "Flathub",
+      origin: "flathub",
     },
   };
 }

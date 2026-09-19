@@ -1,5 +1,12 @@
 import { Focusable, TextField } from "@decky/ui";
 import type { MutableRefObject, ReactElement } from "react";
+import {
+  emptySearchMessage,
+  FLATPAK_SEARCH_EMPTY_HINT,
+  FLATPAK_SEARCH_PARTIAL_WARNING,
+  FLATPAK_SEARCH_TOTAL_FAILURE_HINT,
+  FLATPAK_SEARCH_TOTAL_FAILURE_TITLE,
+} from "../api/flatpakSearchState";
 import { CatalogBadge } from "../api/installedInventory";
 import { CatalogAppSummary, CatalogFailure } from "../types/catalog";
 import CatalogGrid from "./CatalogGrid";
@@ -11,6 +18,8 @@ export default function SearchOverlay({
   loading,
   loadingMore,
   error,
+  partialFailure,
+  failedSourceLabels,
   totalHits,
   page,
   totalPages,
@@ -25,12 +34,15 @@ export default function SearchOverlay({
   badgeForApp,
   searchLabel = "Search",
   emptyHint = "Type a name to search.",
+  provider = "flatpak",
 }: {
   query: string;
   apps: CatalogAppSummary[];
   loading: boolean;
   loadingMore: boolean;
   error: CatalogFailure | null;
+  partialFailure?: boolean;
+  failedSourceLabels?: string[];
   totalHits: number;
   page: number;
   totalPages: number;
@@ -45,11 +57,14 @@ export default function SearchOverlay({
   badgeForApp?: (app: CatalogAppSummary) => CatalogBadge;
   searchLabel?: string;
   emptyHint?: string;
+  provider?: "flatpak" | "appman";
 }): ReactElement {
   const trimmed = query.trim();
+  const isFlatpak = provider === "flatpak";
   const emptyMessage = trimmed
-    ? "No matching applications. This is an empty successful query."
+    ? emptySearchMessage(trimmed)
     : emptyHint;
+  const zeroHint = trimmed ? FLATPAK_SEARCH_EMPTY_HINT : undefined;
 
   return (
     <Focusable
@@ -92,8 +107,24 @@ export default function SearchOverlay({
           loading={loading}
           loadingMore={loadingMore}
           error={error}
+          warningMessage={
+            isFlatpak && partialFailure ? FLATPAK_SEARCH_PARTIAL_WARNING : undefined
+          }
+          failedSourceLabels={isFlatpak ? failedSourceLabels : undefined}
           emptyMessage={emptyMessage}
-          statusLabel={trimmed && !loading ? `Results · ${totalHits}` : undefined}
+          emptyHint={trimmed ? zeroHint : undefined}
+          errorTitle={isFlatpak ? FLATPAK_SEARCH_TOTAL_FAILURE_TITLE : undefined}
+          errorHint={
+            isFlatpak
+              ? FLATPAK_SEARCH_TOTAL_FAILURE_HINT
+              : "Request failed. This is not an empty result."
+          }
+          loadingLabel={isFlatpak ? "Searching…" : "Loading catalog…"}
+          statusLabel={
+            trimmed && !loading && !error && totalHits > 0
+              ? `Results · ${totalHits}`
+              : undefined
+          }
           restoreAppId={restoreAppId}
           canLoadMore={Boolean(trimmed) && page < totalPages}
           onOpen={onOpen}

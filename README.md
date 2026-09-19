@@ -16,11 +16,11 @@ The plugin is unprivileged (`flags: []`). It does not use root or custom polkit 
 
 ## What it does
 
-- **Flatpak** — search Flathub, browse categories, install and manage user and system Flatpaks
+- **Flatpak** — search configured remotes, browse Flathub categories with third-party apps merged in, install and manage user and system Flatpaks
 - **AppMan** — search and manage AppMan apps when AppMan is installed
-- **Installed** — user Flatpaks, AppMan apps, and system Flatpaks, kept as distinct identities. Installed Flatpak details use Flathub metadata when a match exists, otherwise local name, application ID, origin, scope, and version
+- **Installed** — user Flatpaks, AppMan apps, and system Flatpaks, kept as distinct identities. Installed Flatpak details use Flathub metadata when the origin is Flathub, otherwise local AppStream or name, application ID, origin, scope, and version
 - **Updates** — Flatpak pending updates by scope, plus AppMan updater actions (AppMan has no pending-update list)
-- **Settings** — default Flatpak install scope, optional SteamGridDB API key for Add to Steam artwork, and AppMan search scope
+- **Settings** — default Flathub install scope, optional SteamGridDB API key for Add to Steam artwork, and AppMan search scope
 
 Open it from Decky’s Quick Access menu (**Open DeckDepot**). On some Steam Gaming Mode builds, DeckDepot also appears in Steam’s main menu. That menu row is unofficial and may disappear after a Steam UI update; the QAM button is the supported way in.
 

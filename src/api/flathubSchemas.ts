@@ -8,6 +8,10 @@ export const SearchHitSchema = z.object({
   main_categories: z.string().nullable().optional(),
   developer_name: z.string().nullable().optional(),
   description: z.string().nullable().optional(),
+  project_license: z.string().nullable().optional(),
+  is_free_license: z.boolean().nullable().optional(),
+  verification_verified: z.boolean().nullable().optional(),
+  is_eol: z.boolean().nullable().optional(),
 });
 
 export const SearchResponseSchema = z.object({
@@ -54,6 +58,9 @@ export const AppstreamSchema = z.object({
   description: z.string().nullable().optional(),
   developer_name: z.string().nullable().optional(),
   project_license: z.string().nullable().optional(),
+  is_free_license: z.boolean().nullable().optional(),
+  is_eol: z.boolean().nullable().optional(),
+  metadata: z.record(z.string(), z.unknown()).nullable().optional(),
   screenshots: z.array(z.unknown()).nullable().optional(),
   categories: z.array(z.unknown()).nullable().optional(),
   launchable: z

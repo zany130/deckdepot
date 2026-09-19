@@ -3,6 +3,14 @@ import { type Tab } from "@decky/ui";
 import { CURATED_CATEGORIES } from "../api/flathubClient";
 import { getCatalogDetails, listProviderCategory, searchProviderCatalog } from "../api/catalogClient";
 import {
+  applyContentFilters,
+  ensureContentFiltersLoaded,
+  getContentFilters,
+  subscribeContentFilters,
+  type ContentFilters,
+} from "../api/contentFilters";
+import { ensureHostPolicyDeniedIds } from "../api/hostPolicy";
+import {
   badgeForApp,
   statusForApp,
 } from "../api/installedInventory";
@@ -18,8 +26,9 @@ import {
   CatalogAppDetails,
   CatalogAppSummary,
   CatalogFailure,
+  CatalogRemoteWarning,
 } from "../types/catalog";
-import { catalogKey, ProviderId } from "../types/provider";
+import { catalogKey, isFlathubSource, ProviderId } from "../types/provider";
 
 const SEARCH_DEBOUNCE_MS = 300;
 const DEFAULT_CATEGORY = CURATED_CATEGORIES[0].slug;
@@ -29,7 +38,14 @@ type CachedCategory = {
   page: number;
   totalPages: number;
   totalHits: number;
+  warnings: CatalogRemoteWarning[];
 };
+
+const browseCache = new Map<string, CachedCategory>();
+
+function cacheKey(provider: ProviderId, slug: string): string {
+  return `${provider}:${slug}`;
+}
 
 export default function StoreRoute({
   provider,
@@ -40,22 +56,27 @@ export default function StoreRoute({
   const steam = useSteamShortcuts();
   const [activeCategory, setActiveCategory] = useState<string>(DEFAULT_CATEGORY);
   const [browseApps, setBrowseApps] = useState<CatalogAppSummary[]>([]);
-  const [browseTotalHits, setBrowseTotalHits] = useState(0);
+  const [, setBrowseTotalHits] = useState(0);
   const [browsePage, setBrowsePage] = useState(1);
   const [browseTotalPages, setBrowseTotalPages] = useState(1);
   const [browseLoading, setBrowseLoading] = useState(true);
   const [browseLoadingMore, setBrowseLoadingMore] = useState(false);
   const [browseError, setBrowseError] = useState<CatalogFailure | null>(null);
+  const [browseWarnings, setBrowseWarnings] = useState<CatalogRemoteWarning[]>([]);
+  const [contentFilters, setContentFilters] = useState<ContentFilters>(getContentFilters);
+  const [deniedAppIds, setDeniedAppIds] = useState<Set<string>>(new Set());
 
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [searchApps, setSearchApps] = useState<CatalogAppSummary[]>([]);
-  const [searchTotalHits, setSearchTotalHits] = useState(0);
+  const [, setSearchTotalHits] = useState(0);
   const [searchPage, setSearchPage] = useState(1);
   const [searchTotalPages, setSearchTotalPages] = useState(1);
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchLoadingMore, setSearchLoadingMore] = useState(false);
   const [searchError, setSearchError] = useState<CatalogFailure | null>(null);
+  const [searchPartialFailure, setSearchPartialFailure] = useState(false);
+  const [searchFailedSourceLabels, setSearchFailedSourceLabels] = useState<string[]>([]);
 
   const [selected, setSelected] = useState<CatalogAppDetails | null>(null);
   const [detailsLoading, setDetailsLoading] = useState(false);
@@ -67,7 +88,6 @@ export default function StoreRoute({
   const browseAbortRef = useRef<AbortController | null>(null);
   const searchAbortRef = useRef<AbortController | null>(null);
   const detailsAbortRef = useRef<AbortController | null>(null);
-  const categoryCache = useRef(new Map<string, CachedCategory>());
   const browseTileRefs = useRef(new Map<string, HTMLDivElement>());
   const searchTileRefs = useRef(new Map<string, HTMLDivElement>());
   const searchOpenRef = useRef(false);
@@ -75,6 +95,24 @@ export default function StoreRoute({
   useEffect(() => {
     searchOpenRef.current = searchOpen;
   }, [searchOpen]);
+
+  useEffect(() => {
+    return subscribeContentFilters(() => setContentFilters(getContentFilters()));
+  }, []);
+
+  useEffect(() => {
+    if (provider !== "flatpak") {
+      return;
+    }
+    void (async () => {
+      const [filters, denied] = await Promise.all([
+        ensureContentFiltersLoaded(),
+        ensureHostPolicyDeniedIds(),
+      ]);
+      setContentFilters(filters);
+      setDeniedAppIds(denied);
+    })();
+  }, [provider]);
 
   useEffect(() => {
     return () => {
@@ -91,11 +129,12 @@ export default function StoreRoute({
     setBrowseTotalPages(cached.totalPages);
     setBrowseTotalHits(cached.totalHits);
     setBrowseError(null);
+    setBrowseWarnings(cached.warnings || []);
     setBrowseLoading(false);
   };
 
-  const openCategory = (slug: string, force = false) => {
-    const cached = categoryCache.current.get(slug);
+  const openCategory = (slug: string, force = false, refresh = false) => {
+    const cached = browseCache.get(cacheKey(provider, slug));
     if (cached && !force) {
       applyCategory(slug, cached);
       return;
@@ -114,13 +153,21 @@ export default function StoreRoute({
     }
     void (async () => {
       try {
-        const result = await listProviderCategory(provider, slug, { page: 1, signal: controller.signal });
+        if (provider === "flatpak" && refresh) {
+          setDeniedAppIds(await ensureHostPolicyDeniedIds(true));
+        }
+        const result = await listProviderCategory(provider, slug, {
+          page: 1,
+          signal: controller.signal,
+          refresh,
+        });
         if (controller.signal.aborted) {
           return;
         }
         if (!result.ok) {
           setBrowseError(result);
           setBrowseApps([]);
+          setBrowseWarnings([]);
           return;
         }
         const next: CachedCategory = {
@@ -128,8 +175,9 @@ export default function StoreRoute({
           page: result.page,
           totalPages: result.totalPages,
           totalHits: result.totalHits,
+          warnings: result.warnings || [],
         };
-        categoryCache.current.set(slug, next);
+        browseCache.set(cacheKey(provider, slug), next);
         applyCategory(slug, next);
       } catch (exc) {
         if (exc instanceof DOMException && exc.name === "AbortError") {
@@ -149,8 +197,7 @@ export default function StoreRoute({
   };
 
   useEffect(() => {
-    categoryCache.current.clear();
-    openCategory(DEFAULT_CATEGORY, true);
+    openCategory(DEFAULT_CATEGORY, false, false);
   }, [provider]);
 
   const cycleCategory = (direction: -1 | 1) => {
@@ -160,7 +207,7 @@ export default function StoreRoute({
     openCategory(CURATED_CATEGORIES[next].slug);
   };
 
-  const runSearch = (trimmed: string) => {
+  const runSearch = (trimmed: string, refresh = false) => {
     searchAbortRef.current?.abort();
     const controller = new AbortController();
     searchAbortRef.current = controller;
@@ -170,30 +217,43 @@ export default function StoreRoute({
     setSearchPage(1);
     setSearchTotalHits(0);
     setSearchTotalPages(1);
+    setSearchPartialFailure(false);
+    setSearchFailedSourceLabels([]);
     void (async () => {
       try {
-        const result = await searchProviderCatalog(provider, trimmed, { page: 1, signal: controller.signal });
+        const result = await searchProviderCatalog(provider, trimmed, {
+          page: 1,
+          signal: controller.signal,
+          refresh,
+        });
         if (controller.signal.aborted) {
           return;
         }
         if (!result.ok) {
           setSearchError(result);
           setSearchApps([]);
+          setSearchPartialFailure(false);
+          setSearchFailedSourceLabels([]);
           return;
         }
         setSearchApps(result.apps);
         setSearchTotalHits(result.totalHits);
         setSearchPage(result.page);
         setSearchTotalPages(result.totalPages);
+        setSearchPartialFailure(Boolean(result.partialFailure));
+        setSearchFailedSourceLabels(result.failedSourceLabels || []);
       } catch (exc) {
         if (exc instanceof DOMException && exc.name === "AbortError") {
           return;
         }
+        console.warn("[DeckDepot] search failed", exc);
         setSearchError({
           ok: false,
           errorCode: "NETWORK_ERROR",
           errorMessage: String(exc),
         });
+        setSearchPartialFailure(false);
+        setSearchFailedSourceLabels([]);
       } finally {
         if (!controller.signal.aborted) {
           setSearchLoading(false);
@@ -214,8 +274,12 @@ export default function StoreRoute({
       setSearchLoading(false);
       setSearchTotalHits(0);
       setSearchTotalPages(1);
+      setSearchPartialFailure(false);
+      setSearchFailedSourceLabels([]);
       return;
     }
+    setSearchLoading(true);
+    setSearchError(null);
     const handle = window.setTimeout(() => runSearch(trimmed), SEARCH_DEBOUNCE_MS);
     return () => window.clearTimeout(handle);
   }, [query, searchOpen]);
@@ -243,11 +307,12 @@ export default function StoreRoute({
         }
         setBrowseApps((current) => {
           const apps = [...current, ...result.apps];
-          categoryCache.current.set(activeCategory, {
+          browseCache.set(cacheKey(provider, activeCategory), {
             apps,
             page: result.page,
             totalPages: result.totalPages,
             totalHits: result.totalHits,
+            warnings: result.warnings || [],
           });
           return apps;
         });
@@ -388,6 +453,14 @@ export default function StoreRoute({
   };
 
   const showingDetails = Boolean(detailsTarget || selected || detailsLoading || detailsError);
+  const filteredBrowse =
+    provider === "flatpak"
+      ? applyContentFilters(browseApps, contentFilters, deniedAppIds)
+      : { apps: browseApps, dropped: 0 };
+  const filteredSearch =
+    provider === "flatpak"
+      ? applyContentFilters(searchApps, contentFilters, deniedAppIds)
+      : { apps: searchApps, dropped: 0 };
   const selectedStatus = selected
     ? statusForApp(inventoryState.inventory, selected, [
         ...inventoryState.updates,
@@ -400,6 +473,13 @@ export default function StoreRoute({
       ...inventoryState.systemUpdates,
     ]);
   const isAppman = selected?.provider === "appman";
+  const selectedIsFlathub = Boolean(selected && !isAppman && isFlathubSource(selected));
+  const catalogInstallScope =
+    selected && !isAppman && !selectedIsFlathub
+      ? selected.installationScope || null
+      : isAppman
+        ? null
+        : inventoryState.resolvedInstallScope;
 
   const requestInstall = async (app: CatalogAppSummary) => {
     if (app.provider === "appman") {
@@ -414,19 +494,35 @@ export default function StoreRoute({
       await inventoryState.installAppman(app.appId, app.sourceId || "am");
       return;
     }
-    const scope = inventoryState.resolvedInstallScope;
-    if (!scope) {
+    inventoryState.rememberAppName(app.appId, app.name);
+    if (isFlathubSource(app)) {
+      const scope = inventoryState.resolvedInstallScope;
+      if (!scope) {
+        return;
+      }
+      const confirmed = await confirmAction(
+        `Install ${app.name}?`,
+        `Install ${app.appId} as a ${scope}-scoped Flatpak from Flathub.`
+      );
+      if (!confirmed) {
+        return;
+      }
+      await inventoryState.installFlatpak(app.appId, scope, "flathub", app.ref);
       return;
     }
+    const scope = app.installationScope;
+    if (scope !== "user" && scope !== "system") {
+      return;
+    }
+    const source = app.sourceLabel || app.remoteName || "this remote";
     const confirmed = await confirmAction(
       `Install ${app.name}?`,
-      `Install ${app.appId} as a ${scope}-scoped Flatpak from Flathub.`
+      `Install ${app.appId} as a ${scope}-scoped Flatpak from ${source}.`
     );
     if (!confirmed) {
       return;
     }
-    inventoryState.rememberAppName(app.appId, app.name);
-    await inventoryState.installFlatpak(app.appId, scope);
+    await inventoryState.installFlatpak(app.appId, scope, app.remoteName, app.ref);
   };
 
   const requestUninstall = async (
@@ -501,9 +597,17 @@ export default function StoreRoute({
           }
         }}
         installStatus={selectedStatus}
-        flathubMissing={isAppman ? false : inventoryState.flathubMissing}
-        resolvedInstallScope={isAppman ? null : inventoryState.resolvedInstallScope}
-        scopeUnavailableReason={isAppman ? null : inventoryState.scopeUnavailableReason}
+        flathubMissing={isAppman || !selectedIsFlathub ? false : inventoryState.flathubMissing}
+        resolvedInstallScope={catalogInstallScope}
+        scopeUnavailableReason={
+          isAppman
+            ? null
+            : selectedIsFlathub
+              ? inventoryState.scopeUnavailableReason
+              : catalogInstallScope === "system" && !inventoryState.systemMutationsAvailable
+                ? inventoryState.scopeUnavailableReason
+                : null
+        }
         systemMutationsAvailable={inventoryState.systemMutationsAvailable}
         userMutationsDisabled={
           isAppman
@@ -528,7 +632,9 @@ export default function StoreRoute({
           selected ? (scope) => void requestUpdate(selected, scope) : undefined
         }
         onEnableFlathub={
-          isAppman ? undefined : () => void inventoryState.enableFlathub()
+          isAppman || !selectedIsFlathub
+            ? undefined
+            : () => void inventoryState.enableFlathub()
         }
         onCancelTask={() => void inventoryState.cancelCurrent()}
         steam={steam}
@@ -540,20 +646,22 @@ export default function StoreRoute({
     return (
       <SearchOverlay
         query={query}
-        apps={searchApps}
+        apps={filteredSearch.apps}
         loading={searchLoading}
         loadingMore={searchLoadingMore}
         error={searchError}
-        totalHits={searchTotalHits}
+        partialFailure={searchPartialFailure}
+        failedSourceLabels={searchFailedSourceLabels}
+        totalHits={filteredSearch.apps.length}
         page={searchPage}
         totalPages={searchTotalPages}
         restoreAppId={restoreSearchAppId}
         tileRefs={searchTileRefs}
-        searchLabel={provider === "appman" ? "Search AppMan" : "Search Flathub"}
+        searchLabel={provider === "appman" ? "Search AppMan" : "Search Flatpak"}
         emptyHint={
           provider === "appman"
             ? "Type a name to search AppMan."
-            : "Type a name to search Flathub."
+            : "Type a name to search configured Flatpak remotes."
         }
         onQueryChange={setQuery}
         onClose={closeSearch}
@@ -561,12 +669,13 @@ export default function StoreRoute({
         onRetry={() => {
           const trimmed = query.trim();
           if (trimmed) {
-            runSearch(trimmed);
+            runSearch(trimmed, true);
           }
         }}
         onLoadMore={loadMoreSearch}
         onFocusApp={(app) => setRestoreSearchAppId(catalogKey(app))}
         badgeForApp={catalogBadge}
+        provider={provider}
       />
     );
   }
@@ -576,17 +685,18 @@ export default function StoreRoute({
 
   const browsePane = (
     <CatalogGrid
-      apps={browseApps}
+      apps={filteredBrowse.apps}
       loading={browseLoading}
       loadingMore={browseLoadingMore}
       error={browseError}
+      warnings={browseWarnings}
       emptyMessage="No matching applications. This is an empty successful query."
-      statusLabel={browseLoading ? activeLabel : `${activeLabel} · ${browseTotalHits}`}
+      statusLabel={browseLoading ? activeLabel : `${activeLabel} · ${filteredBrowse.apps.length}`}
       restoreAppId={restoreBrowseAppId}
       canLoadMore={browsePage < browseTotalPages}
       onOpen={(app) => openDetails(app, false)}
       onSearch={openSearch}
-      onRetry={() => openCategory(activeCategory, true)}
+      onRetry={() => openCategory(activeCategory, true, true)}
       onLoadMore={loadMoreBrowse}
       onBumper={cycleCategory}
       onFocusApp={(app) => setRestoreBrowseAppId(catalogKey(app))}

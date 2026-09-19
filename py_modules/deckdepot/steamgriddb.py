@@ -25,7 +25,7 @@ from deckdepot.redact import redact_text
 SETTINGS_FILENAME = "steamgriddb.json"
 SETTINGS_VERSION = 1
 API_BASE = "https://www.steamgriddb.com/api/v2"
-USER_AGENT = "DeckDepot/1.0.2"
+USER_AGENT = "DeckDepot/1.1.0"
 TIMEOUT_SEC = 20
 MAX_KEY_LEN = 256
 MAX_NAME_LEN = 128
