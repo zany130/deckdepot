@@ -28,6 +28,7 @@ export interface CatalogAppSummary {
   amType?: string | null;
   amDb?: string | null;
   launchSpec?: AppManLaunchSpec;
+  origin?: string;
 }
 
 export interface CatalogScreenshot {

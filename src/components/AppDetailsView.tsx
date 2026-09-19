@@ -186,7 +186,7 @@ function DetailsBody({
           <div style={{ opacity: 0.7, marginTop: "4px", fontSize: "13px" }}>
             {app.provider === "appman"
               ? app.sourceLabel || "AppMan"
-              : "Flatpak · Flathub"}
+              : `Flatpak${flatpakOriginLabel(app, installStatus)}`}
             {userInstalled ? " · User install" : ""}
             {systemInstalled ? " · Installed system-wide" : ""}
           </div>
@@ -281,6 +281,11 @@ function DetailsBody({
         <div style={{ opacity: 0.85, lineHeight: 1.5 }}>
           {[
             app.sourceLabel ? `Source: ${app.sourceLabel}` : null,
+            app.provider !== "appman"
+              ? `Origin: ${installedOrigin(app, installStatus) || "Flathub"}`
+              : null,
+            userInstalled ? "Scope: user" : null,
+            systemInstalled ? "Scope: system" : null,
             app.amType ? `Format: ${app.amType}` : null,
             app.projectLicense ? `License: ${app.projectLicense}` : null,
             userVersion ? `User version: ${userVersion}` : null,
@@ -295,7 +300,7 @@ function DetailsBody({
         </div>
       </section>
 
-      {app.screenshots.length > 0 ? (
+      {app.screenshots && app.screenshots.length > 0 ? (
         <section>
           <h2 style={sectionTitle}>Screenshots</h2>
           <Focusable flow-children="row" style={screenshotRowStyle}>
@@ -525,6 +530,32 @@ function ScreenshotTile({
       ) : null}
     </Focusable>
   );
+}
+
+function installedOrigin(
+  app: CatalogAppDetails,
+  installStatus?: AppInstallStatus
+): string | undefined {
+  const local =
+    app.origin?.trim() ||
+    installStatus?.userApp?.origin?.trim() ||
+    installStatus?.systemApp?.origin?.trim() ||
+    "";
+  if (local) {
+    return local;
+  }
+  if (installStatus?.userInstalled || installStatus?.systemInstalled) {
+    return "unknown remote";
+  }
+  return undefined;
+}
+
+function flatpakOriginLabel(
+  app: CatalogAppDetails,
+  installStatus?: AppInstallStatus
+): string {
+  const origin = installedOrigin(app, installStatus) || "Flathub";
+  return ` · ${origin}`;
 }
 
 function aboutText(app: CatalogAppDetails): string {

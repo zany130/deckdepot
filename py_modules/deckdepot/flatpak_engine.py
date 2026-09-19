@@ -86,6 +86,11 @@ def require_flatpak_path() -> str:
 def parse_list_output(
     stdout: str, *, installation_scope: str = "user"
 ) -> dict[str, Any]:
+    """Parse `flatpak list --app` output for one installation scope.
+
+    Local inventory is authoritative for Installed. Keep every application
+    row regardless of origin remote. Do not require Flathub.
+    """
     rows: list[dict[str, Any]] = []
     malformed: list[dict[str, Any]] = []
     for index, raw_line in enumerate(stdout.splitlines()):

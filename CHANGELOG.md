@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.2
+
+- Show installed Flatpaks from any origin on Installed; Flathub metadata is optional enrichment, not an existence requirement
+
 ## 1.0.1
 
 - Manage system-scoped Flatpaks through the verified user-systemd session bridge

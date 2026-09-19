@@ -5,9 +5,15 @@ import {
   Marquee,
   NavEntryPositionPreferences,
 } from "@decky/ui";
-import { useEffect, useState, type ReactElement } from "react";
+import { useEffect, useRef, useState, type ReactElement } from "react";
+import { getCatalogDetails } from "../api/catalogClient";
+import {
+  detailsForInstalledFlatpak,
+  fallbackInstalledDetails,
+} from "../api/installedCatalog";
 import { useFlatpakInventory } from "../api/useFlatpakInventory";
 import { useSteamShortcuts } from "../api/useSteamShortcuts";
+import AppDetailsView from "../components/AppDetailsView";
 import SegmentedControl from "../components/SegmentedControl";
 import SteamActions from "../components/SteamActions";
 import { confirmAction } from "../components/confirmAction";
@@ -17,9 +23,10 @@ import {
   embeddedShellStyle,
   focusOutline,
 } from "../components/storeLayout";
+import { CatalogAppDetails, CatalogFailure } from "../types/catalog";
 import { AppSummary, TaskProgress, isActivePhase } from "../types/flatpak";
 import { catalogKey, ProviderId } from "../types/provider";
-import { activeTaskForApp } from "../api/installedInventory";
+import { activeTaskForApp, statusForApp } from "../api/installedInventory";
 import { viewFromTask } from "../api/operationState";
 import OperationProgress from "../components/OperationProgress";
 
@@ -35,6 +42,12 @@ export default function InstalledRoute(): ReactElement {
   const [restoreUserId, setRestoreUserId] = useState<string | null>(null);
   const [restoreSystemId, setRestoreSystemId] = useState<string | null>(null);
   const [restoreAppmanId, setRestoreAppmanId] = useState<string | null>(null);
+  const [detailsTarget, setDetailsTarget] = useState<AppSummary | null>(null);
+  const [detailsApp, setDetailsApp] = useState<CatalogAppDetails | null>(null);
+  const [detailsLoading, setDetailsLoading] = useState(false);
+  const [detailsError, setDetailsError] = useState<CatalogFailure | null>(null);
+  const [catalogMatched, setCatalogMatched] = useState(false);
+  const detailsAbortRef = useRef<AbortController | null>(null);
 
   const cycleScope = (direction: -1 | 1) => {
     setFlatpakScope((current) => (direction < 0
@@ -50,6 +63,12 @@ export default function InstalledRoute(): ReactElement {
     }
     setFlatpakScope(state.systemScopeRelevant && !state.userScopeRelevant ? "system" : "user");
   }, [showScopeToggle, state.systemScopeRelevant, state.userScopeRelevant]);
+
+  useEffect(() => {
+    return () => {
+      detailsAbortRef.current?.abort();
+    };
+  }, []);
 
   const uninstall = async (app: AppSummary) => {
     if (app.provider === "appman") {
@@ -121,9 +140,162 @@ export default function InstalledRoute(): ReactElement {
     await state.updateFlatpak(app.appId, update.ref, scope);
   };
 
+  const rememberRestoreId = (app: AppSummary) => {
+    const key = catalogKey(app);
+    if (app.provider === "appman") {
+      setRestoreAppmanId(key);
+      return;
+    }
+    if (app.installationScope === "system") {
+      setRestoreSystemId(key);
+      return;
+    }
+    setRestoreUserId(key);
+  };
+
+  const closeDetails = () => {
+    detailsAbortRef.current?.abort();
+    setDetailsLoading(false);
+    setDetailsError(null);
+    setDetailsApp(null);
+    setDetailsTarget(null);
+    setCatalogMatched(false);
+  };
+
+  const openDetails = (app: AppSummary) => {
+    detailsAbortRef.current?.abort();
+    const controller = new AbortController();
+    detailsAbortRef.current = controller;
+    rememberRestoreId(app);
+    setDetailsTarget(app);
+    setDetailsLoading(true);
+    setDetailsError(null);
+    setDetailsApp(null);
+    setCatalogMatched(false);
+    void (async () => {
+      try {
+        if (app.provider === "appman") {
+          const result = await getCatalogDetails(app, { signal: controller.signal });
+          if (controller.signal.aborted) {
+            return;
+          }
+          if (!result.ok) {
+            setDetailsError(result);
+            return;
+          }
+          setDetailsApp(result.app);
+          setCatalogMatched(true);
+          return;
+        }
+        const result = await detailsForInstalledFlatpak(app, { signal: controller.signal });
+        if (controller.signal.aborted) {
+          return;
+        }
+        setDetailsApp(result.app);
+        setCatalogMatched(result.catalogMatched);
+      } catch (exc) {
+        if (exc instanceof DOMException && exc.name === "AbortError") {
+          return;
+        }
+        if (app.provider === "appman") {
+          setDetailsError({
+            ok: false,
+            errorCode: "NETWORK_ERROR",
+            errorMessage: String(exc),
+          });
+          return;
+        }
+        setDetailsApp(fallbackInstalledDetails(app));
+        setCatalogMatched(false);
+      } finally {
+        if (!controller.signal.aborted) {
+          setDetailsLoading(false);
+        }
+      }
+    })();
+  };
+
   const flatpakUserApps = state.inventory.userApps.filter((app) => app.provider !== "appman");
   const appmanApps = state.inventory.userApps.filter((app) => app.provider === "appman");
   const flatpakCount = flatpakUserApps.length + state.inventory.systemApps.length;
+  const showingDetails = Boolean(
+    detailsTarget || detailsApp || detailsLoading || detailsError
+  );
+  const detailsStatus = detailsTarget
+    ? statusForApp(state.inventory, detailsTarget, [
+        ...state.updates,
+        ...state.systemUpdates,
+      ])
+    : undefined;
+  const detailsIsAppman = (detailsApp ?? detailsTarget)?.provider === "appman";
+
+  if (showingDetails) {
+    return (
+      <AppDetailsView
+        app={detailsApp}
+        loading={detailsLoading}
+        error={detailsError}
+        onBack={closeDetails}
+        onRetry={() => {
+          if (detailsTarget) {
+            openDetails(detailsTarget);
+          }
+        }}
+        installStatus={detailsStatus}
+        flathubMissing={detailsIsAppman ? false : catalogMatched ? state.flathubMissing : false}
+        resolvedInstallScope={detailsIsAppman ? null : state.resolvedInstallScope}
+        scopeUnavailableReason={detailsIsAppman ? null : state.scopeUnavailableReason}
+        systemMutationsAvailable={state.systemMutationsAvailable}
+        userMutationsDisabled={
+          detailsIsAppman ? state.appmanMutationsDisabled : state.userMutationsDisabled
+        }
+        systemMutationsDisabled={state.systemMutationsDisabled}
+        mutationsDisabled={
+          detailsIsAppman ? state.appmanMutationsDisabled : state.userMutationsDisabled
+        }
+        task={state.task}
+        actionError={state.error}
+        onInstall={
+          detailsApp && catalogMatched && !detailsIsAppman
+            ? () => void state.installFlatpak(detailsApp.appId)
+            : undefined
+        }
+        onUninstall={
+          detailsTarget
+            ? (scope) => {
+                const row =
+                  scope === "system"
+                    ? detailsStatus?.systemApp
+                    : detailsStatus?.userApp;
+                if (row) {
+                  void uninstall(row);
+                }
+              }
+            : undefined
+        }
+        onUpdate={
+          detailsTarget
+            ? (scope) => {
+                const row =
+                  scope === "system"
+                    ? detailsStatus?.systemApp
+                    : detailsStatus?.userApp;
+                if (row) {
+                  void updateApp(row);
+                }
+              }
+            : undefined
+        }
+        onEnableFlathub={
+          detailsIsAppman || !catalogMatched
+            ? undefined
+            : () => void state.enableFlathub()
+        }
+        onCancelTask={() => void state.cancelCurrent()}
+        steam={steam}
+      />
+    );
+  }
 
   return (
     <Focusable
@@ -177,6 +349,7 @@ export default function InstalledRoute(): ReactElement {
             onCancelTask={() => void state.cancelCurrent()}
             onUninstall={uninstall}
             onUpdate={updateApp}
+            onOpen={openDetails}
             steam={steam}
             onFocusApp={setRestoreAppmanId}
           />
@@ -197,6 +370,7 @@ export default function InstalledRoute(): ReactElement {
             onCancelTask={() => void state.cancelCurrent()}
             onUninstall={uninstall}
             onUpdate={updateApp}
+            onOpen={openDetails}
             updateAppIds={new Set(state.updates.map((item) => item.appId))}
             steam={steam}
             onFocusApp={setRestoreUserId}
@@ -228,6 +402,7 @@ export default function InstalledRoute(): ReactElement {
             onCancelTask={() => void state.cancelCurrent()}
             onUninstall={uninstall}
             onUpdate={updateApp}
+            onOpen={openDetails}
             updateAppIds={new Set(state.systemUpdates.map((item) => item.appId))}
             mutationsDisabled={state.systemMutationsDisabled}
             busy={state.busy}
@@ -260,6 +435,7 @@ function InstalledPane({
   onCancelTask,
   onUninstall,
   onUpdate,
+  onOpen,
   updateAppIds,
   steam,
   showSteamChrome = true,
@@ -282,6 +458,7 @@ function InstalledPane({
   onCancelTask?: () => void;
   onUninstall?: (app: AppSummary) => void;
   onUpdate?: (app: AppSummary) => void;
+  onOpen?: (app: AppSummary) => void;
   updateAppIds?: Set<string>;
   steam: ReturnType<typeof useSteamShortcuts>;
   showSteamChrome?: boolean;
@@ -432,6 +609,7 @@ function InstalledPane({
               mutationsDisabled={Boolean(mutationsDisabled)}
               preferredFocus={restoreAppId === catalogKey(app)}
               task={task}
+              onOpen={onOpen}
               onUninstall={onUninstall}
               onUpdate={
                 (app.provider === "appman" && app.hasUpdater) ||
@@ -455,6 +633,7 @@ function InstalledRow({
   mutationsDisabled,
   preferredFocus,
   task,
+  onOpen,
   onUninstall,
   onUpdate,
   steam,
@@ -465,6 +644,7 @@ function InstalledRow({
   mutationsDisabled?: boolean;
   preferredFocus?: boolean;
   task?: TaskProgress | null;
+  onOpen?: (app: AppSummary) => void;
   onUninstall?: (app: AppSummary) => void;
   onUpdate?: (app: AppSummary) => void;
   steam: ReturnType<typeof useSteamShortcuts>;
@@ -479,8 +659,17 @@ function InstalledRow({
   return (
     <Focusable
       preferredFocus={preferredFocus}
+      onActivate={onOpen ? () => onOpen(app) : undefined}
       onOKActionDescription={
-        canMutate ? (onUpdate ? "Update" : onUninstall ? "Uninstall" : "Select") : "Select"
+        onOpen
+          ? "Details"
+          : canMutate
+            ? onUpdate
+              ? "Update"
+              : onUninstall
+                ? "Uninstall"
+                : "Select"
+            : "Select"
       }
       onGamepadFocus={() => {
         setFocused(true);

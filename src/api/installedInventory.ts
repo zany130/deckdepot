@@ -47,6 +47,8 @@ export function mergeInventory(
   remote: FlathubRemoteResult | null,
   appmanResult?: InstalledAppsResult | null
 ): InstalledInventory {
+  // Installed is the host inventory. Keep every Flatpak row, including
+  // non-Flathub origins; catalog metadata is not required for existence.
   const userApps = userResult.ok ? withScope(userResult.apps, "user") : [];
   const systemApps = systemResult.ok ? withScope(systemResult.apps, "system") : [];
   const appmanApps =

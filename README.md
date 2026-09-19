@@ -18,7 +18,7 @@ The plugin is unprivileged (`flags: []`). It does not use root or custom polkit 
 
 - **Flatpak** — search Flathub, browse categories, install and manage user and system Flatpaks
 - **AppMan** — search and manage AppMan apps when AppMan is installed
-- **Installed** — user Flatpaks, AppMan apps, and system Flatpaks, kept as distinct identities
+- **Installed** — user Flatpaks, AppMan apps, and system Flatpaks, kept as distinct identities. Installed Flatpaks come from the host inventory and appear even when they were not installed from Flathub
 - **Updates** — Flatpak pending updates by scope, plus AppMan updater actions (AppMan has no pending-update list)
 - **Settings** — default Flatpak install scope, optional SteamGridDB API key for Add to Steam artwork, and AppMan search scope
 
