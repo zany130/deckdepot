@@ -88,8 +88,8 @@ def parse_list_output(
 ) -> dict[str, Any]:
     """Parse `flatpak list --app` output for one installation scope.
 
-    Local inventory is authoritative for Installed. Keep every application
-    row regardless of origin remote. Do not require Flathub.
+    Installed inventory includes every application row, including non-Flathub
+    origins. Flathub catalog metadata is not used here.
     """
     rows: list[dict[str, Any]] = []
     malformed: list[dict[str, Any]] = []

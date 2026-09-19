@@ -2,7 +2,11 @@
 
 ## 1.0.2
 
-- Show installed Flatpaks from any origin on Installed; Flathub metadata is optional enrichment, not an existence requirement
+- Open Installed Flatpak details even when Flathub has no matching catalog record
+- Fall back to local name, application ID, origin, scope, and installed version
+- Show the app's actual Flatpak remote origin instead of assuming Flathub
+- Keep Flathub catalog metadata as optional enrichment when a match exists
+- Discover/Search remains Flathub-only
 
 ## 1.0.1
 
