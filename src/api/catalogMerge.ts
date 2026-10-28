@@ -68,15 +68,64 @@ function preferExact(current: CatalogAppSummary, incoming: CatalogAppSummary): C
   return mergeCatalogMetadata(current, incoming);
 }
 
+/** Same app, branch, arch, and remote configured in both user and system. */
+function scopeGroupKey(app: CatalogAppSummary): string | null {
+  if (app.provider !== "flatpak" || !app.installationScope) {
+    return null;
+  }
+  const remote = (app.remoteName || app.sourceLabel || "").trim().toLowerCase();
+  if (!remote) {
+    return null;
+  }
+  const arch = app.arch?.trim() || "x86_64";
+  return `${app.appId}:${branchOf(app)}:${arch}:${remote}`;
+}
+
+function preferScope(current: CatalogAppSummary, incoming: CatalogAppSummary): CatalogAppSummary {
+  const currentRank = installedRank(current.installedState);
+  const incomingRank = installedRank(incoming.installedState);
+  if (incomingRank > currentRank) {
+    return mergeCatalogMetadata(incoming, current);
+  }
+  if (currentRank > incomingRank) {
+    return mergeCatalogMetadata(current, incoming);
+  }
+  if (incoming.installationScope === "user" && current.installationScope !== "user") {
+    return mergeCatalogMetadata(incoming, current);
+  }
+  return mergeCatalogMetadata(current, incoming);
+}
+
+function collapseSameRemoteScopes(apps: CatalogAppSummary[]): CatalogAppSummary[] {
+  const seen = new Map<string, number>();
+  const result: CatalogAppSummary[] = [];
+  for (const app of apps) {
+    const key = scopeGroupKey(app);
+    if (!key) {
+      result.push(app);
+      continue;
+    }
+    const index = seen.get(key);
+    if (index === undefined) {
+      seen.set(key, result.length);
+      result.push(app);
+      continue;
+    }
+    result[index] = preferScope(result[index], app);
+  }
+  return result;
+}
+
 /**
  * Collapse accidental Flatpak duplicates without merging distinct apps.
  *
  * A generic Flathub hit (no installation scope) and a local row with the
  * same app id and branch are one application. The local row keeps its
- * remote, scope, and ref; Flathub fills missing metadata. User and system
- * rows stay separate. Different branches stay separate. The same display
- * name with a different app id stays separate. Repeated catalog keys,
- * including across pages, keep a single row.
+ * remote, scope, and ref; Flathub fills missing metadata. The same remote
+ * configured for both user and system is one listing; the installed copy
+ * wins, otherwise the user copy. Different branches, remotes, and app ids
+ * stay separate. Repeated catalog keys, including across pages, keep a
+ * single row.
  */
 export function mergeBrowseApps(apps: CatalogAppSummary[]): CatalogAppSummary[] {
   const order: string[] = [];
@@ -133,5 +182,5 @@ export function mergeBrowseApps(apps: CatalogAppSummary[]): CatalogAppSummary[] 
     }
     result.push(enriched.get(catalogKey(app)) ?? app);
   }
-  return result;
+  return collapseSameRemoteScopes(result);
 }

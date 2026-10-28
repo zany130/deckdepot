@@ -52,12 +52,12 @@ describe("mergeBrowseApps", () => {
     assert.equal(catalogKey(merged[0]), catalogKey(local));
   });
 
-  it("keeps user and system copies of the same app", () => {
+  it("collapses the same third-party app listed in user and system", () => {
     const user = app({
-      appId: "io.github.pkhex.Avalonia",
+      appId: "io.github.realgarit.PKHeX-Avalonia",
       name: "PKHeX-Avalonia",
-      remoteName: "flathub",
-      sourceLabel: "Flathub",
+      remoteName: "flatpark",
+      sourceLabel: "FlatPark",
       installationScope: "user",
       arch: "x86_64",
       branch: "stable",
@@ -65,7 +65,6 @@ describe("mergeBrowseApps", () => {
     const system = app({
       ...user,
       installationScope: "system",
-      installedState: "update_available",
     });
     const http = app({
       ...generic,
@@ -73,12 +72,33 @@ describe("mergeBrowseApps", () => {
       name: user.name,
     });
     const merged = mergeBrowseApps([user, http, system]);
-    assert.deepEqual(
-      merged.map((item) => item.installationScope),
-      ["user", "system"]
-    );
-    assert.equal(merged[1].installedState, "update_available");
+    assert.equal(merged.length, 1);
+    assert.equal(merged[0].installationScope, "user");
+    assert.equal(merged[0].remoteName, "flatpark");
     assert.equal(merged[0].summary, http.summary);
+  });
+
+  it("keeps the installed scope when user and system both list the app", () => {
+    const user = app({
+      appId: "io.github.realgarit.PKHeX-Avalonia",
+      name: "PKHeX-Avalonia",
+      remoteName: "flatpark",
+      sourceLabel: "FlatPark",
+      installationScope: "user",
+      arch: "x86_64",
+      branch: "stable",
+    });
+    const system = app({
+      ...user,
+      installationScope: "system",
+      installedState: "installed",
+      ref: "app/io.github.realgarit.PKHeX-Avalonia/x86_64/stable",
+    });
+    const merged = mergeBrowseApps([user, system]);
+    assert.equal(merged.length, 1);
+    assert.equal(merged[0].installationScope, "system");
+    assert.equal(merged[0].installedState, "installed");
+    assert.equal(merged[0].ref, system.ref);
   });
 
   it("keeps different branches and different app ids that share a name", () => {
