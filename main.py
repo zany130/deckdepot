@@ -120,8 +120,14 @@ class Plugin:
         log_info("RPC get_appman_search")
         return await self.flatpak.get_appman_search(query, scope)
 
-    async def get_appman_category(self, slug: str) -> dict:
-        return await self.flatpak.get_appman_category(slug)
+    async def get_appman_category(
+        self,
+        slug: str,
+        page: int = 1,
+        source_id: str = "",
+        package_format: str = "",
+    ) -> dict:
+        return await self.flatpak.get_appman_category(slug, page, source_id, package_format)
 
     async def get_appman_details(self, app_id: str, source_id: str = "am") -> dict:
         return await self.flatpak.get_appman_details(app_id, source_id)

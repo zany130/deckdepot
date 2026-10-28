@@ -8,7 +8,8 @@ export type AppManSourceId =
   | "busybox"
   | "coreutilsh"
   | "python"
-  | "appbundle";
+  | "appbundle"
+  | "amutils";
 
 export const APPMAN_SEARCH_SCOPE_OPTIONS: Array<{
   value: AppManSearchScope;
@@ -23,7 +24,7 @@ export const APPMAN_SEARCH_SCOPE_OPTIONS: Array<{
   {
     value: "all",
     label: "All",
-    description: "Include third-party AppMan databases.",
+    description: "Search every third-party database this AppMan install can install.",
   },
   {
     value: "appimages",

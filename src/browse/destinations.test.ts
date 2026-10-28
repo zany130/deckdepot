@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+  APPMAN_EVERYTHING_ID,
+  APPMAN_FORMAT_FILTERS,
+  APPMAN_SOFTWARE_CATEGORIES,
   cycleDestination,
   defaultDestination,
   destinationsFor,
@@ -8,19 +11,16 @@ import {
   resolveDestination,
 } from "./destinations";
 
-const CATEGORY_IDS = [
-  "game",
-  "utility",
-  "audiovideo",
-  "graphics",
-  "network",
-  "office",
-  "development",
-  "education",
-  "science",
-  "system",
-  "healthfitness",
-  "other",
+const SHARED_CATEGORY_IDS = ["game", "utility", "audiovideo", "graphics", "development"];
+
+const APPMAN_TAB_IDS = [
+  ...SHARED_CATEGORY_IDS,
+  "emulator",
+  "gnome",
+  "kde",
+  "metapackages",
+  "wine",
+  "all-categories",
 ];
 
 describe("browse destinations", () => {
@@ -36,9 +36,16 @@ describe("browse destinations", () => {
       ]
     );
     assert.deepEqual(
-      flatpak.filter((item) => item.kind === "category").map((item) => item.id),
-      CATEGORY_IDS
+      flatpak.filter((item) => item.kind === "category" && item.providers.includes("appman")).map((item) => item.id),
+      SHARED_CATEGORY_IDS
     );
+    assert.equal(flatpak.find((item) => item.id === "office")?.label, "Productivity");
+    assert.equal(flatpak.find((item) => item.id === "development")?.label, "Developer Tools");
+    assert.equal(flatpak.find((item) => item.id === "network")?.label, "Networking");
+    assert.equal(flatpak.find((item) => item.id === "graphics")?.label, "Graphics & Photography");
+    assert.equal(flatpak.find((item) => item.id === "ai")?.label, "AI");
+    assert.equal(flatpak.find((item) => item.id === "ai")?.flathubCategory, false);
+    assert.equal(flatpak.some((item) => item.id === "other" || item.id === "healthfitness"), false);
   });
 
   it("hides collections the provider cannot support", () => {
@@ -46,8 +53,10 @@ describe("browse destinations", () => {
     assert.equal(appman.some((item) => item.kind === "collection"), false);
     assert.deepEqual(
       appman.map((item) => item.id),
-      CATEGORY_IDS
+      APPMAN_TAB_IDS
     );
+    assert.equal(appman.find((item) => item.id === "all-categories")?.kind, "index");
+    assert.equal(appman.some((item) => item.id === "network" || item.id === "office"), false);
   });
 
   it("keeps collection ids distinct from category ids", () => {
@@ -66,11 +75,26 @@ describe("browse destinations", () => {
 
   it("cycles bumpers through the visible tabs, including the ends", () => {
     const ids = destinationsFor("flatpak").map((item) => item.id);
-    assert.equal(cycleDestination(ids, "new-arrivals", -1), "other");
-    assert.equal(cycleDestination(ids, "other", 1), "new-arrivals");
+    assert.equal(cycleDestination(ids, "new-arrivals", -1), "system");
+    assert.equal(cycleDestination(ids, "system", 1), "new-arrivals");
     assert.equal(cycleDestination(ids, "trending", 1), "popular");
     const appman = destinationsFor("appman").map((item) => item.id);
-    assert.equal(cycleDestination(appman, "game", -1), "other");
+    assert.equal(cycleDestination(appman, "game", -1), "all-categories");
+  });
+
+  it("keeps AppMan formats and sources out of the category list", () => {
+    const ids = APPMAN_SOFTWARE_CATEGORIES.map((item) => item.id);
+    for (const required of ["emulator", "gnome", "kde", "metapackages", "wine", "game"]) {
+      assert.equal(ids.includes(required), true, required);
+    }
+    for (const formatId of ["appimages", "portable", "portable-cli", "portable-desktop", "appimage-on-the-fly"]) {
+      assert.equal(ids.includes(formatId), false, formatId);
+    }
+    assert.equal(ids.includes(APPMAN_EVERYTHING_ID), false);
+    assert.deepEqual(
+      APPMAN_FORMAT_FILTERS.map((item) => item.id),
+      ["all", "appimage", "portable"]
+    );
   });
 
   it("expires collection cache sooner than a fresh category cache", () => {

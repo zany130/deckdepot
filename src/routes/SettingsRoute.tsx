@@ -154,7 +154,7 @@ export default function SettingsRoute(): ReactElement {
   const configured = Boolean(status && status.ok && status.configured);
   const appmanOk = Boolean(appman && "ok" in appman && appman.ok);
   const appmanStatus = appmanOk && appman && appman.ok ? appman : null;
-  const searchScope: AppManSearchScope = appmanStatus?.searchScope ?? "default";
+  const searchScope: AppManSearchScope = appmanStatus?.searchScope ?? "all";
 
   const changeScope = async (scope: AppManSearchScope) => {
     setBusy(true);
@@ -308,10 +308,11 @@ export default function SettingsRoute(): ReactElement {
         <div>
           <div style={{ fontSize: "22px", fontWeight: 700 }}>AppMan</div>
           <div style={{ opacity: 0.75, fontSize: "13px", marginTop: "4px" }}>
-            Portable apps use the same Games, Utilities, Audio & Video, Graphics,
-            Network, Office, and Development tabs. AppMan is labeled as a separate
-            source. Uncategorized AppMan apps stay in search and installed, not a new
-            tab. DeckDepot does not launch AppMan apps.
+            AppMan browse includes every database this install can install. The tabs are Games,
+            Utilities, Audio & Video, Graphics & Photography, Developer Tools, Emulators, GNOME,
+            KDE, Metapackages, and Wine. All Categories lists the rest. Source and package format
+            are filters, not categories. Command-line tools and metapackages are not added to
+            Steam unless AppMan provides a usable launch target.
           </div>
         </div>
         <div style={{ opacity: 0.9 }}>
@@ -327,7 +328,7 @@ export default function SettingsRoute(): ReactElement {
         </div>
         <SettingsDropdown
           label="AppMan search scope"
-          description="Default uses appman -q. All includes third-party databases. This is not a --pkg query."
+          description="Search only. Category browse already includes every database this AppMan install can install. All searches those databases. This is not a --pkg query."
           rgOptions={APPMAN_SEARCH_SCOPE_OPTIONS.map((item) => ({
             data: item.value,
             label: item.label,

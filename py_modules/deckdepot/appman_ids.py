@@ -14,6 +14,7 @@ SOURCES = {
     "coreutilsh",
     "python",
     "appbundle",
+    "amutils",
 }
 SEARCH_SCOPES = {"default", "all", "appimages", "portable"}
 SCOPE_FLAGS = {
@@ -29,14 +30,16 @@ SOURCE_FLAGS = {
     "coreutilsh": ("--coreutilsh",),
     "python": ("--python",),
     "appbundle": ("--appbundle",),
+    "amutils": ("--amutils",),
 }
 SOURCE_LABELS = {
     "am": "AM",
-    "soarpkg": "soarpkg",
-    "busybox": "busybox",
-    "coreutilsh": "coreutilsh",
-    "python": "python",
-    "appbundle": "appbundle",
+    "soarpkg": "Soar",
+    "busybox": "BusyBox",
+    "coreutilsh": "Coreutils",
+    "python": "Python",
+    "appbundle": "AppBundle",
+    "amutils": "AM utils",
 }
 
 
@@ -70,6 +73,8 @@ def validate_search_scope(raw: str | None) -> str:
 def source_from_text(text: str) -> str:
     lowered = (text or "").lower()
     for source, flag in (
+        ("amutils", "--amutils"),
+        ("amutils", ".amutils"),
         ("soarpkg", "--soarpkg"),
         ("soarpkg", ".soarpkg"),
         ("busybox", "--busybox"),
@@ -86,3 +91,21 @@ def source_from_text(text: str) -> str:
     if "[busybox]" in lowered:
         return "busybox"
     return "am"
+
+
+def source_mutation_args(operation: str, app_id: str, source_id: str) -> list[str]:
+    """Argv for one install, update, or uninstall.
+
+    Flags are the ones AppMan documents for that database. The main AM
+    database takes no source flag. ``update_all`` is not handled here.
+    """
+    app_id = validate_appman_name(app_id)
+    source_id = validate_source_id(source_id)
+    flags = list(SOURCE_FLAGS[source_id])
+    if operation == "install":
+        return ["-y", "-i", *flags, app_id]
+    if operation == "update":
+        return ["-y", "-u", *flags, app_id]
+    if operation == "uninstall":
+        return ["-y", "-R", *flags, app_id]
+    raise EngineError("INVALID_ARGUMENT", f"unsupported operation {operation}")

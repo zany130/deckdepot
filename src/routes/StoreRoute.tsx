@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState, type ReactElement } from "react";
-import { type Tab } from "@decky/ui";
+import { Focusable, type Tab } from "@decky/ui";
+import { getAppmanStatus } from "../api/appmanBridge";
 import { getCatalogDetails, listProviderCategory, searchProviderCatalog } from "../api/catalogClient";
 import { mergeBrowseApps } from "../api/catalogMerge";
 import {
+  APPMAN_EVERYTHING_ID,
+  appmanCategoryLabel,
   cycleDestination,
   defaultDestination,
   destinationById,
@@ -25,6 +28,8 @@ import {
 import { useFlatpakInventory } from "../api/useFlatpakInventory";
 import { useSteamShortcuts } from "../api/useSteamShortcuts";
 import AppDetailsView from "../components/AppDetailsView";
+import AppmanBrowseFilters from "../components/AppmanBrowseFilters";
+import AppmanCategoryIndex from "../components/AppmanCategoryIndex";
 import CatalogGrid from "../components/CatalogGrid";
 import CategoryTabs from "../components/CategoryTabs";
 import SearchOverlay from "../components/SearchOverlay";
@@ -51,9 +56,14 @@ type CachedCategory = {
 
 const browseCache = new Map<string, CachedCategory>();
 
-function cacheKey(provider: ProviderId, slug: string): string {
+function cacheKey(provider: ProviderId, slug: string, source = "all", format = "all"): string {
+  if (provider === "appman") {
+    return `${provider}:${slug}:${source}:${format}`;
+  }
   return `${provider}:${slug}`;
 }
+
+const APPMAN_BASE_SOURCES = ["am", "amutils", "busybox", "coreutilsh", "python"];
 
 export default function StoreRoute({
   provider,
@@ -66,7 +76,15 @@ export default function StoreRoute({
   const activeCategoryRef = useRef(activeCategory);
   activeCategoryRef.current = activeCategory;
   const [browseApps, setBrowseApps] = useState<CatalogAppSummary[]>([]);
-  const [, setBrowseTotalHits] = useState(0);
+  const [browseTotalHits, setBrowseTotalHits] = useState(0);
+  const [sourceFilter, setSourceFilter] = useState("all");
+  const [formatFilter, setFormatFilter] = useState("all");
+  const [nestedSlug, setNestedSlug] = useState<string | null>(null);
+  const [catalogSources, setCatalogSources] = useState<string[]>(APPMAN_BASE_SOURCES);
+  const filtersRef = useRef({ source: "all", format: "all" });
+  const nestedRef = useRef<string | null>(null);
+  filtersRef.current = { source: sourceFilter, format: formatFilter };
+  nestedRef.current = nestedSlug;
   const [browsePage, setBrowsePage] = useState(1);
   const [browseTotalPages, setBrowseTotalPages] = useState(1);
   const [browseLoading, setBrowseLoading] = useState(true);
@@ -143,9 +161,35 @@ export default function StoreRoute({
     setBrowseLoading(false);
   };
 
+  const browseFilters = () =>
+    provider === "appman" ? filtersRef.current : { source: "all", format: "all" };
+
   const openCategory = (slug: string, force = false, refresh = false) => {
-    const ttl = destinationById(slug)?.cacheTtlMs ?? 10 * 60 * 1000;
-    const cached = browseCache.get(cacheKey(provider, slug));
+    if (slug !== "all-categories") {
+      nestedRef.current = null;
+      setNestedSlug(null);
+    }
+    const browseSlug = slug === "all-categories" ? nestedRef.current : slug;
+    const { source, format } = browseFilters();
+    if (!browseSlug) {
+      browseAbortRef.current?.abort();
+      setActiveCategory(slug);
+      setBrowseApps([]);
+      setBrowseError(null);
+      setBrowseWarnings([]);
+      setBrowseLoading(false);
+      setBrowseLoadingMore(false);
+      setBrowsePage(1);
+      setBrowseTotalHits(0);
+      setBrowseTotalPages(1);
+      return;
+    }
+    const ttl =
+      destinationById(browseSlug)?.cacheTtlMs ??
+      destinationById(slug)?.cacheTtlMs ??
+      10 * 60 * 1000;
+    const key = cacheKey(provider, browseSlug, source, format);
+    const cached = browseCache.get(key);
     const fresh = Boolean(cached && isBrowseCacheFresh(cached.fetchedAt, Date.now(), ttl));
     if (cached && fresh && !force) {
       browseAbortRef.current?.abort();
@@ -169,10 +213,12 @@ export default function StoreRoute({
         if (provider === "flatpak" && refresh) {
           setDeniedAppIds(await ensureHostPolicyDeniedIds(true));
         }
-        const result = await listProviderCategory(provider, slug, {
+        const result = await listProviderCategory(provider, browseSlug, {
           page: 1,
           signal: controller.signal,
           refresh,
+          sourceId: source,
+          packageFormat: format,
         });
         if (controller.signal.aborted) {
           return;
@@ -191,7 +237,7 @@ export default function StoreRoute({
           warnings: result.warnings || [],
           fetchedAt: Date.now(),
         };
-        browseCache.set(cacheKey(provider, slug), next);
+        browseCache.set(key, next);
         applyCategory(slug, next);
       } catch (exc) {
         if (exc instanceof DOMException && exc.name === "AbortError") {
@@ -210,8 +256,58 @@ export default function StoreRoute({
     })();
   };
 
+  const openNestedCategory = (slug: string) => {
+    nestedRef.current = slug;
+    setNestedSlug(slug);
+    openCategory("all-categories", true);
+  };
+
+  const closeNestedCategory = () => {
+    nestedRef.current = null;
+    setNestedSlug(null);
+    openCategory("all-categories");
+  };
+
+  const changeAppmanFilter = (kind: "source" | "format", id: string) => {
+    const next = { ...filtersRef.current, [kind]: id };
+    filtersRef.current = next;
+    if (kind === "source") {
+      setSourceFilter(id);
+    } else {
+      setFormatFilter(id);
+    }
+    const tab = activeCategoryRef.current;
+    if (tab === "all-categories" && !nestedRef.current) {
+      return;
+    }
+    openCategory(tab, true);
+  };
+
   useEffect(() => {
     openCategory(resolveDestination(provider, activeCategoryRef.current), false, false);
+  }, [provider]);
+
+  useEffect(() => {
+    if (provider !== "appman") {
+      return;
+    }
+    let cancelled = false;
+    void getAppmanStatus().then((result) => {
+      if (cancelled || !result.ok || !result.catalogSources?.length) {
+        return;
+      }
+      setCatalogSources(result.catalogSources);
+      if (
+        filtersRef.current.source !== "all" &&
+        !result.catalogSources.includes(filtersRef.current.source)
+      ) {
+        filtersRef.current = { ...filtersRef.current, source: "all" };
+        setSourceFilter("all");
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [provider]);
 
   const cycleCategory = (direction: -1 | 1) => {
@@ -297,18 +393,23 @@ export default function StoreRoute({
   }, [query, searchOpen]);
 
   const loadMoreBrowse = () => {
-    if (browseLoading || browseLoadingMore || browsePage >= browseTotalPages) {
+    const browseSlug = activeCategory === "all-categories" ? nestedRef.current : activeCategory;
+    if (!browseSlug || browseLoading || browseLoadingMore || browsePage >= browseTotalPages) {
       return;
     }
     const nextPage = browsePage + 1;
+    const { source, format } = browseFilters();
+    const key = cacheKey(provider, browseSlug, source, format);
     const controller = browseAbortRef.current ?? new AbortController();
     browseAbortRef.current = controller;
     setBrowseLoadingMore(true);
     void (async () => {
       try {
-        const result = await listProviderCategory(provider, activeCategory, {
+        const result = await listProviderCategory(provider, browseSlug, {
           page: nextPage,
           signal: controller.signal,
+          sourceId: source,
+          packageFormat: format,
         });
         if (controller.signal.aborted) {
           return;
@@ -319,8 +420,8 @@ export default function StoreRoute({
         }
         setBrowseApps((current) => {
           const apps = mergeBrowseApps([...current, ...result.apps]);
-          const existing = browseCache.get(cacheKey(provider, activeCategory));
-          browseCache.set(cacheKey(provider, activeCategory), {
+          const existing = browseCache.get(key);
+          browseCache.set(key, {
             apps,
             page: result.page,
             totalPages: result.totalPages,
@@ -695,31 +796,78 @@ export default function StoreRoute({
   }
 
   const activeDestination = destinationById(activeCategory);
-  const activeLabel = activeDestination?.label ?? activeCategory;
+  const browseSlug = activeCategory === "all-categories" ? nestedSlug : activeCategory;
+  const showingIndex = provider === "appman" && activeCategory === "all-categories" && !browseSlug;
+  const activeLabel = browseSlug
+    ? activeCategory === "all-categories"
+      ? appmanCategoryLabel(browseSlug)
+      : activeDestination?.label ?? browseSlug
+    : activeDestination?.label ?? activeCategory;
   const sourceNote = activeDestination?.kind === "collection" ? " · Flathub" : "";
+  const countLabel =
+    browseTotalHits > filteredBrowse.apps.length
+      ? `${filteredBrowse.apps.length} of ${browseTotalHits}`
+      : `${filteredBrowse.apps.length}`;
 
-  const browsePane = (
-    <CatalogGrid
-      apps={filteredBrowse.apps}
-      loading={browseLoading}
-      loadingMore={browseLoadingMore}
-      error={browseError}
-      warnings={browseWarnings}
-      emptyMessage="No matching applications. This is an empty successful query."
-      statusLabel={
-        browseLoading ? activeLabel : `${activeLabel}${sourceNote} · ${filteredBrowse.apps.length}`
-      }
-      restoreAppId={restoreBrowseAppId}
-      canLoadMore={browsePage < browseTotalPages}
-      onOpen={(app) => openDetails(app, false)}
-      onSearch={openSearch}
-      onRetry={() => openCategory(activeCategory, true, true)}
-      onLoadMore={loadMoreBrowse}
-      onBumper={cycleCategory}
-      onFocusApp={(app) => setRestoreBrowseAppId(catalogKey(app))}
-      badgeForApp={catalogBadge}
-      tileRefs={browseTileRefs}
-    />
+  const browsePane = showingIndex ? (
+    <div style={{ height: "100%", display: "flex", flexDirection: "column", minHeight: 0 }}>
+      <AppmanBrowseFilters
+        source={sourceFilter}
+        format={formatFilter}
+        sources={catalogSources}
+        onSource={(id) => changeAppmanFilter("source", id)}
+        onFormat={(id) => changeAppmanFilter("format", id)}
+      />
+      <div style={{ flex: 1, minHeight: 0 }}>
+        <AppmanCategoryIndex
+          onOpen={openNestedCategory}
+          onOpenEverything={() => openNestedCategory(APPMAN_EVERYTHING_ID)}
+        />
+      </div>
+    </div>
+  ) : (
+    <div style={{ height: "100%", display: "flex", flexDirection: "column", minHeight: 0 }}>
+      {provider === "appman" ? (
+        <AppmanBrowseFilters
+          source={sourceFilter}
+          format={formatFilter}
+          sources={catalogSources}
+          onSource={(id) => changeAppmanFilter("source", id)}
+          onFormat={(id) => changeAppmanFilter("format", id)}
+        />
+      ) : null}
+      {nestedSlug && activeCategory === "all-categories" ? (
+        <Focusable
+          onActivate={closeNestedCategory}
+          onOKActionDescription="All categories"
+          style={{ padding: "4px 18px 0", flexShrink: 0, fontWeight: 700 }}
+        >
+          All categories
+        </Focusable>
+      ) : null}
+      <div style={{ flex: 1, minHeight: 0 }}>
+        <CatalogGrid
+          apps={filteredBrowse.apps}
+          loading={browseLoading}
+          loadingMore={browseLoadingMore}
+          error={browseError}
+          warnings={browseWarnings}
+          emptyMessage="No matching applications. This is an empty successful query."
+          statusLabel={browseLoading ? activeLabel : `${activeLabel}${sourceNote} · ${countLabel}`}
+          restoreAppId={restoreBrowseAppId}
+          canLoadMore={browsePage < browseTotalPages}
+          onOpen={(app) => openDetails(app, false)}
+          onSearch={openSearch}
+          onRetry={() => openCategory(activeCategory, true, true)}
+          onLoadMore={loadMoreBrowse}
+          onBumper={cycleCategory}
+          onCancel={nestedSlug && activeCategory === "all-categories" ? closeNestedCategory : undefined}
+          onFocusApp={(app) => setRestoreBrowseAppId(catalogKey(app))}
+          badgeForApp={catalogBadge}
+          tileRefs={browseTileRefs}
+        />
+      </div>
+    </div>
   );
 
   const tabs: Tab[] = destinationsFor(provider).map((category) => ({
@@ -732,7 +880,13 @@ export default function StoreRoute({
     <div style={embeddedShellStyle}>
       <CategoryTabs
         activeTab={activeCategory}
-        onShowTab={(id) => openCategory(id)}
+        onShowTab={(id) => {
+          if (id === "all-categories" && id === activeCategory) {
+            nestedRef.current = null;
+            setNestedSlug(null);
+          }
+          openCategory(id);
+        }}
         onSearch={openSearch}
         tabs={tabs}
       />

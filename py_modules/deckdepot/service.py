@@ -225,8 +225,16 @@ class FlatpakService:
     async def get_appman_search(self, query: str, scope: str = "") -> dict[str, Any]:
         return await await_engine(appman_search(query, scope or None))
 
-    async def get_appman_category(self, slug: str) -> dict[str, Any]:
-        return await await_engine(appman_category(slug))
+    async def get_appman_category(
+        self,
+        slug: str,
+        page: int = 1,
+        source_id: str = "",
+        package_format: str = "",
+    ) -> dict[str, Any]:
+        return await await_engine(
+            appman_category(slug, None, page, source_id, package_format)
+        )
 
     async def get_appman_details(self, app_id: str, source_id: str = "am") -> dict[str, Any]:
         return await await_engine(appman_details(app_id, source_id or "am"))

@@ -30,12 +30,12 @@ EXPECTED = (
     "graphics",
     "network",
     "office",
+    "finance",
     "development",
+    "ai",
     "education",
     "science",
     "system",
-    "healthfitness",
-    "other",
 )
 
 
@@ -55,8 +55,9 @@ class CategoryTests(unittest.TestCase):
         self.assertEqual(slugs_for_tokens(["Science"]), ["science"])
         self.assertEqual(slugs_for_tokens(["System"]), ["system"])
         self.assertEqual(slugs_for_tokens(["Settings"]), ["system"])
-        self.assertEqual(slugs_for_tokens(["Health"]), ["healthfitness"])
+        self.assertEqual(slugs_for_tokens(["Finance"]), ["finance"])
         self.assertEqual(slugs_for_tokens(["education"]), ["education"])
+        self.assertEqual(slugs_for_tokens(["Health"]), [])
 
     def test_multi_category(self) -> None:
         self.assertEqual(

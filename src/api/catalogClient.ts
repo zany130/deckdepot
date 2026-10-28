@@ -121,7 +121,7 @@ export async function listFlatpakCategory(
       apps: mergeBrowseApps(http.apps),
     };
   }
-  const includeFlathub = slug !== "other";
+  const includeFlathub = destination?.flathubCategory !== false && slug !== "other";
   const extrasPromise =
     page === 1
       ? listFlatpakCategoryExtras(slug, Boolean(options.refresh)).then(
@@ -208,9 +208,18 @@ export async function searchAppmanCatalog(
   }
 }
 
-export async function listAppmanCategory(slug: string): Promise<CatalogSearchResult> {
+export async function listAppmanCategory(
+  slug: string,
+  options: { page?: number; sourceId?: string; packageFormat?: string } = {}
+): Promise<CatalogSearchResult> {
   try {
-    const result = await getAppmanCategory(slug);
+    const page = options.page ?? 1;
+    const result = await getAppmanCategory(
+      slug,
+      page,
+      options.sourceId && options.sourceId !== "all" ? options.sourceId : "",
+      options.packageFormat && options.packageFormat !== "all" ? options.packageFormat : ""
+    );
     if (!result.ok) {
       return asCatalogFailure(result);
     }
@@ -219,8 +228,8 @@ export async function listAppmanCategory(slug: string): Promise<CatalogSearchRes
       query: slug,
       apps: result.apps,
       totalHits: result.totalHits,
-      page: 1,
-      totalPages: 1,
+      page: result.page ?? page,
+      totalPages: result.totalPages ?? 1,
       droppedHitCount: 0,
     };
   } catch (exc) {
@@ -246,10 +255,16 @@ export async function searchProviderCatalog(
 export async function listProviderCategory(
   provider: ProviderId,
   slug: string,
-  options: { page?: number; signal?: AbortSignal; refresh?: boolean } = {}
+  options: {
+    page?: number;
+    signal?: AbortSignal;
+    refresh?: boolean;
+    sourceId?: string;
+    packageFormat?: string;
+  } = {}
 ): Promise<CatalogSearchResult> {
   if (provider === "appman") {
-    return listAppmanCategory(slug);
+    return listAppmanCategory(slug, options);
   }
   return listFlatpakCategory(slug, options);
 }

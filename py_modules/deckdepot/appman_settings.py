@@ -31,7 +31,7 @@ def settings_path() -> str:
 
 
 def default_settings() -> dict[str, Any]:
-    return {"version": SETTINGS_VERSION, "searchScope": "default"}
+    return {"version": SETTINGS_VERSION, "searchScope": "all"}
 
 
 def load_settings() -> dict[str, Any]:
@@ -48,7 +48,8 @@ def load_settings() -> dict[str, Any]:
         ) from exc
     if not isinstance(payload, dict):
         return default_settings()
-    scope = validate_search_scope(payload.get("searchScope"))
+    raw_scope = payload.get("searchScope")
+    scope = validate_search_scope(raw_scope if raw_scope else "all")
     return {"version": SETTINGS_VERSION, "searchScope": scope}
 
 

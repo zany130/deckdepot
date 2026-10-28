@@ -9,6 +9,7 @@ export interface AppManStatus {
   binary?: string | null;
   version?: string | null;
   searchScope: AppManSearchScope;
+  catalogSources?: string[];
   trustLabel?: string;
   config?: {
     present: boolean;
@@ -39,8 +40,11 @@ export type AppManCategoryResult =
       slug: string;
       apps: CatalogAppSummary[];
       totalHits: number;
+      page?: number;
+      totalPages?: number;
       truncated?: boolean;
       available: boolean;
+      enabledSources?: string[];
     }
   | EngineErrorResult;
 
@@ -55,9 +59,10 @@ export const getAppmanSearch = callable<
   AppManSearchResult
 >("get_appman_search");
 
-export const getAppmanCategory = callable<[slug: string], AppManCategoryResult>(
-  "get_appman_category"
-);
+export const getAppmanCategory = callable<
+  [slug: string, page: number, sourceId: string, packageFormat: string],
+  AppManCategoryResult
+>("get_appman_category");
 
 export const getAppmanDetails = callable<
   [appId: string, sourceId: string],

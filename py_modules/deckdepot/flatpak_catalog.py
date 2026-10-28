@@ -12,6 +12,7 @@ import json
 import os
 import shutil
 import time
+import urllib.request
 from pathlib import Path
 from typing import Any
 
@@ -36,6 +37,8 @@ REMOTE_LS_COLUMNS = (
     "origin",
     "ref",
 )
+FLATPARK_CATALOG_URL = "https://flatpark.org/search-index.json"
+FLATPARK_AI_TTL_SEC = 60 * 60
 DEFAULT_ARCH = "x86_64"
 CACHE_TTL_SEC = 300
 APPSTREAM_TTL_SEC = 600
@@ -801,11 +804,52 @@ async def _search_scope(scope: str, query: str) -> dict[str, Any]:
     return {"ok": True, "hits": hits}
 
 
+def _flatpark_ai_ids_sync() -> list[str]:
+    """App ids Flatpark publishes in its AI section.
+
+    AI is not an AppStream category. Flatpark stores it on the catalog entry
+    and keeps a normal desktop category in the metainfo.
+    """
+    request = urllib.request.Request(
+        FLATPARK_CATALOG_URL,
+        headers={"User-Agent": "DeckDepot", "Accept": "application/json"},
+    )
+    with urllib.request.urlopen(request, timeout=15) as response:
+        payload = json.loads(response.read().decode())
+    apps = payload if isinstance(payload, list) else payload.get("apps") or []
+    ids: list[str] = []
+    for item in apps:
+        if not isinstance(item, dict) or item.get("section") != "ai":
+            continue
+        app_id = str(item.get("id") or "").strip()
+        if app_id:
+            ids.append(app_id)
+    return ids
+
+
+async def flatpark_ai_app_ids(*, refresh: bool = False) -> tuple[set[str], str | None]:
+    cached = None if refresh else _cache_get("flatpark-ai-ids")
+    if cached is not None:
+        return set(cached), None
+    try:
+        ids = await asyncio.to_thread(_flatpark_ai_ids_sync)
+    except Exception as exc:
+        log_info(f"Flatpark AI catalog unavailable: {exc}")
+        return set(), "Flatpark AI catalog could not be loaded"
+    _cache_set("flatpark-ai-ids", ids, FLATPARK_AI_TTL_SEC)
+    return set(ids), None
+
+
 async def list_third_party_category(slug: str, *, refresh: bool = False) -> dict[str, Any]:
     remotes = await list_catalog_remotes(refresh=refresh)
     warnings: list[dict[str, str]] = []
     apps: list[dict[str, Any]] = []
     seen: set[str] = set()
+    ai_ids: set[str] = set()
+    if slug == "ai":
+        ai_ids, ai_error = await flatpark_ai_app_ids(refresh=refresh)
+        if ai_error:
+            warnings.append(_warning("flatpark", ai_error))
     for scope in ("user", "system"):
         bundle = remotes.get(scope) or {}
         if not bundle.get("ok"):
@@ -842,10 +886,13 @@ async def list_third_party_category(slug: str, *, refresh: bool = False) -> dict
                 row = await _enrich_row(row, remote, with_icon=True, refresh=refresh)
                 known = bool(row.pop("categoriesKnown", False))
                 categories = row.get("categories") or []
-                # Other is only for apps whose AppStream data parsed and
-                # mapped to none of the known categories. A failed
-                # appstreamcli call must not dump the whole remote here.
-                if slug == "other":
+                if slug == "ai":
+                    if row.get("appId") not in ai_ids:
+                        continue
+                    if "ai" not in categories:
+                        categories = ["ai", *categories]
+                        row["categories"] = categories
+                elif slug == "other":
                     if not known or categories:
                         continue
                 elif slug not in categories:

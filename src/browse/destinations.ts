@@ -1,6 +1,6 @@
 import type { ProviderId } from "../types/provider";
 
-export type BrowseKind = "category" | "collection";
+export type BrowseKind = "category" | "collection" | "index";
 
 /**
  * A browse tab. Categories answer "what kind of app is this?".
@@ -20,6 +20,8 @@ export type BrowseDestination = {
   providers: readonly ProviderId[];
   /** Path under https://flathub.org/api/v2/collection/ */
   flathubCollection?: string;
+  /** False for sections Flathub does not publish, such as Flatpark AI and Finance. */
+  flathubCategory?: boolean;
   cacheTtlMs: number;
 };
 
@@ -30,15 +32,82 @@ const CATEGORIES: BrowseDestination[] = [
   { id: "game", label: "Games", kind: "category", providers: ["flatpak", "appman"], cacheTtlMs: TEN_MINUTES },
   { id: "utility", label: "Utilities", kind: "category", providers: ["flatpak", "appman"], cacheTtlMs: TEN_MINUTES },
   { id: "audiovideo", label: "Audio & Video", kind: "category", providers: ["flatpak", "appman"], cacheTtlMs: TEN_MINUTES },
-  { id: "graphics", label: "Graphics", kind: "category", providers: ["flatpak", "appman"], cacheTtlMs: TEN_MINUTES },
-  { id: "network", label: "Network", kind: "category", providers: ["flatpak", "appman"], cacheTtlMs: TEN_MINUTES },
-  { id: "office", label: "Office", kind: "category", providers: ["flatpak", "appman"], cacheTtlMs: TEN_MINUTES },
-  { id: "development", label: "Development", kind: "category", providers: ["flatpak", "appman"], cacheTtlMs: TEN_MINUTES },
-  { id: "education", label: "Education", kind: "category", providers: ["flatpak", "appman"], cacheTtlMs: TEN_MINUTES },
-  { id: "science", label: "Science", kind: "category", providers: ["flatpak", "appman"], cacheTtlMs: TEN_MINUTES },
-  { id: "system", label: "System", kind: "category", providers: ["flatpak", "appman"], cacheTtlMs: TEN_MINUTES },
-  { id: "healthfitness", label: "Health & Fitness", kind: "category", providers: ["flatpak", "appman"], cacheTtlMs: TEN_MINUTES },
-  { id: "other", label: "Other", kind: "category", providers: ["flatpak", "appman"], cacheTtlMs: TEN_MINUTES },
+  { id: "graphics", label: "Graphics & Photography", kind: "category", providers: ["flatpak", "appman"], cacheTtlMs: TEN_MINUTES },
+  { id: "network", label: "Networking", kind: "category", providers: ["flatpak"], cacheTtlMs: TEN_MINUTES },
+  { id: "office", label: "Productivity", kind: "category", providers: ["flatpak"], cacheTtlMs: TEN_MINUTES },
+  { id: "finance", label: "Finance", kind: "category", providers: ["flatpak"], flathubCategory: false, cacheTtlMs: TEN_MINUTES },
+  { id: "development", label: "Developer Tools", kind: "category", providers: ["flatpak", "appman"], cacheTtlMs: TEN_MINUTES },
+  { id: "ai", label: "AI", kind: "category", providers: ["flatpak"], flathubCategory: false, cacheTtlMs: TEN_MINUTES },
+  { id: "education", label: "Education", kind: "category", providers: ["flatpak"], cacheTtlMs: TEN_MINUTES },
+  { id: "science", label: "Science", kind: "category", providers: ["flatpak"], cacheTtlMs: TEN_MINUTES },
+  { id: "system", label: "System", kind: "category", providers: ["flatpak"], cacheTtlMs: TEN_MINUTES },
+];
+
+/** AppMan-only tabs. The long AM category list stays behind All Categories. */
+const APPMAN_TABS: BrowseDestination[] = [
+  { id: "emulator", label: "Emulators", kind: "category", providers: ["appman"], cacheTtlMs: TEN_MINUTES },
+  { id: "gnome", label: "GNOME", kind: "category", providers: ["appman"], cacheTtlMs: TEN_MINUTES },
+  { id: "kde", label: "KDE", kind: "category", providers: ["appman"], cacheTtlMs: TEN_MINUTES },
+  { id: "metapackages", label: "Metapackages", kind: "category", providers: ["appman"], cacheTtlMs: TEN_MINUTES },
+  { id: "wine", label: "Wine", kind: "category", providers: ["appman"], cacheTtlMs: TEN_MINUTES },
+  { id: "all-categories", label: "All Categories", kind: "index", providers: ["appman"], cacheTtlMs: TEN_MINUTES },
+];
+
+/**
+ * AM software categories. Keep the ids aligned with
+ * py_modules/deckdepot/appman_taxonomy.py SOFTWARE_CATEGORIES.
+ * AppImages, portable apps, and the on-the-fly / CLI / desktop slices
+ * are package formats, not entries in this list.
+ */
+export const APPMAN_SOFTWARE_CATEGORIES: ReadonlyArray<{ id: string; label: string }> = [
+  { id: "ai", label: "AI" },
+  { id: "am-utils", label: "AM utilities" },
+  { id: "android", label: "Android" },
+  { id: "audio", label: "Audio" },
+  { id: "comic", label: "Comic" },
+  { id: "command-line", label: "Command Line" },
+  { id: "communication", label: "Communication" },
+  { id: "disk", label: "Disk" },
+  { id: "education", label: "Education" },
+  { id: "emulator", label: "Emulator" },
+  { id: "file-manager", label: "File Manager" },
+  { id: "finance", label: "Finance" },
+  { id: "game", label: "Game" },
+  { id: "gnome", label: "GNOME" },
+  { id: "graphic", label: "Graphic" },
+  { id: "internet", label: "Internet" },
+  { id: "kde", label: "KDE" },
+  { id: "metapackages", label: "Metapackages" },
+  { id: "office", label: "Office" },
+  { id: "password", label: "Password" },
+  { id: "steam", label: "Steam" },
+  { id: "system-monitor", label: "System Monitor" },
+  { id: "video", label: "Video" },
+  { id: "virtual-machine", label: "Virtual Machine" },
+  { id: "wallet", label: "Wallet" },
+  { id: "web-app", label: "Web App" },
+  { id: "web-browser", label: "Web Browser" },
+  { id: "wine", label: "Wine" },
+  { id: "youtube", label: "YouTube" },
+];
+
+export const APPMAN_EVERYTHING_ID = "everything";
+
+export const APPMAN_SOURCE_LABELS: Record<string, string> = {
+  all: "All sources",
+  am: "AM database",
+  amutils: "AM utils",
+  busybox: "BusyBox",
+  coreutilsh: "Coreutils",
+  python: "Python",
+  appbundle: "AppBundle",
+  soarpkg: "Soar",
+};
+
+export const APPMAN_FORMAT_FILTERS: ReadonlyArray<{ id: string; label: string }> = [
+  { id: "all", label: "All formats" },
+  { id: "appimage", label: "AppImage" },
+  { id: "portable", label: "Portable" },
 ];
 
 const COLLECTIONS: BrowseDestination[] = [
@@ -79,6 +148,7 @@ const COLLECTIONS: BrowseDestination[] = [
 export const BROWSE_DESTINATIONS: readonly BrowseDestination[] = [
   ...COLLECTIONS,
   ...CATEGORIES,
+  ...APPMAN_TABS,
 ];
 
 const BY_ID = new Map(BROWSE_DESTINATIONS.map((item) => [item.id, item]));
@@ -117,4 +187,11 @@ export function isBrowseCacheFresh(fetchedAt: number, now: number, ttlMs: number
 
 export function categoryIds(): string[] {
   return CATEGORIES.map((item) => item.id);
+}
+
+export function appmanCategoryLabel(id: string): string {
+  if (id === APPMAN_EVERYTHING_ID) {
+    return "All applications";
+  }
+  return APPMAN_SOFTWARE_CATEGORIES.find((item) => item.id === id)?.label ?? destinationById(id)?.label ?? id;
 }

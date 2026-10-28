@@ -27,6 +27,8 @@ export interface CatalogAppSummary {
   sourceLabel?: string;
   amType?: string | null;
   amDb?: string | null;
+  /** AM format list membership. Unset when the package is not in those lists. */
+  packageFormat?: "appimage" | "portable" | null;
   launchSpec?: AppManLaunchSpec;
   origin?: string;
   installationScope?: "user" | "system";

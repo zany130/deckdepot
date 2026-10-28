@@ -1,14 +1,10 @@
 """Shared browse categories for Flatpak AppStream and AppMan.
 
-Slugs match Flathub's main category collection ids
-(https://flathub.org/api/v2/collection/category/{slug}). Display labels for
-the original seven categories stay as DeckDepot already shows them. Newer
-Flathub mains use Flathub's public names.
-
-`other` is not a Flathub endpoint. It is the local bucket for apps whose
-metadata does not map onto a known main category. Dynamic collections
-(New Arrivals, Recently Updated, Trending, Popular) are Flathub collection
-endpoints and are not represented here; AppMan has no equivalent metadata.
+Slugs match Flathub collection ids. Display names are Flathub's English
+labels (Productivity, Developer Tools, Networking, Graphics & Photography).
+Finance and AI are Flatpark sections. AI is not an AppStream category;
+membership comes from Flatpark's published catalog. Health & Fitness is a
+Flathub id with no apps, so it is not a tab.
 """
 
 from __future__ import annotations
@@ -21,15 +17,15 @@ CATEGORY_ORDER: tuple[tuple[str, str], ...] = (
     ("game", "Games"),
     ("utility", "Utilities"),
     ("audiovideo", "Audio & Video"),
-    ("graphics", "Graphics"),
-    ("network", "Network"),
-    ("office", "Office"),
-    ("development", "Development"),
+    ("graphics", "Graphics & Photography"),
+    ("network", "Networking"),
+    ("office", "Productivity"),
+    ("finance", "Finance"),
+    ("development", "Developer Tools"),
+    ("ai", "AI"),
     ("education", "Education"),
     ("science", "Science"),
     ("system", "System"),
-    ("healthfitness", "Health & Fitness"),
-    ("other", "Other"),
 )
 
 CATEGORY_IDS: tuple[str, ...] = tuple(slug for slug, _label in CATEGORY_ORDER)
@@ -103,12 +99,12 @@ APPSTREAM_EXTRA_TO_SLUG: dict[str, str] = {
     "ContactManagement": "office",
     "Dictionary": "office",
     "Chart": "office",
-    "Finance": "office",
     "FlowChart": "office",
     "PDA": "office",
     "ProjectManagement": "office",
     "Publishing": "office",
     "Viewer": "office",
+    "Finance": "finance",
     "IDE": "development",
     "Debugger": "development",
     "GUIDesigner": "development",
@@ -152,6 +148,14 @@ APPSTREAM_EXTRA_TO_SLUG: dict[str, str] = {
 }
 
 _SLUG_INDEX = {slug: index for index, slug in enumerate(CATEGORY_IDS)}
+
+# Specific phrases only. AppMan's Developer Tools tab uses this same pattern
+# because the AM catalog has no Development category of its own.
+DEVELOPMENT_SUMMARY_RE = re.compile(
+    r"\b(debugger|compiler|code editor|git client|"
+    r"programming language|developer tool)\b",
+    re.I,
+)
 
 # Summary-only fallback. Not applied when desktop/AppStream tokens exist.
 # Patterns are specific phrases, not loose words pulled from descriptions.
@@ -197,14 +201,7 @@ _TEXT_RULES: tuple[tuple[str, re.Pattern[str]], ...] = (
             re.I,
         ),
     ),
-    (
-        "development",
-        re.compile(
-            r"\b(debugger|compiler|code editor|git client|"
-            r"programming language|developer tool)\b",
-            re.I,
-        ),
-    ),
+    ("development", DEVELOPMENT_SUMMARY_RE),
     (
         "education",
         re.compile(
@@ -286,7 +283,8 @@ def normalize_appman_categories(
     """Return (store slugs, original desktop tokens).
 
     Desktop tokens win. Summary phrases are used only when no token maps.
-    Unclassified apps return an empty slug list and belong in Other.
+    Unclassified apps return an empty slug list. They stay out of the
+    category tabs. Flatpark's AI section is assigned separately.
     """
     native = desktop_tokens(desktop_categories)
     slugs = slugs_for_tokens(native)

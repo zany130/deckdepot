@@ -15,15 +15,27 @@ from typing import Any
 import decky
 
 from deckdepot.appman_categories import normalize_categories
-from deckdepot.categories import is_known_category
 from deckdepot.appman_ids import (
     SCOPE_FLAGS,
     SOURCE_FLAGS,
     SOURCE_LABELS,
     source_from_text,
+    source_mutation_args,
     validate_appman_name,
     validate_search_scope,
     validate_source_id,
+)
+from deckdepot.appman_taxonomy import (
+    FORMAT_LIST_FILES,
+    SOURCE_CATALOG_FILES,
+    coerce_page,
+    enabled_sources,
+    filter_catalog_rows,
+    index_catalog_files,
+    is_appman_browse_slug,
+    normalize_format_filter,
+    normalize_source_filter,
+    paginate_rows,
 )
 from deckdepot.appman_settings import load_settings
 from deckdepot.diagnostics import log_info
@@ -38,7 +50,6 @@ MUTATION_TIMEOUT_SEC = {
     "uninstall": 180,
 }
 APPMAN_UPDATE_ALL_APP_ID = "all-appman-apps"
-CATEGORY_BROWSE_CAP = 40
 # AppMan install.am default: download this PNG when an install has no icon.
 AM_CATALOGUE_ICONS = (
     "https://raw.githubusercontent.com/Portable-Linux-Apps/"
@@ -544,12 +555,17 @@ def _to_summary(
     installed_version: str | None = None,
     desktop_categories: str = "",
     resolve_local_icon: bool = False,
+    categories: list[str] | None = None,
+    package_format: str | None = None,
 ) -> dict[str, Any]:
     source = validate_source_id(source_id or source_from_text(summary))
-    categories, native = normalize_categories(
-        summary=summary,
-        desktop_categories=desktop_categories,
-    )
+    if categories is None:
+        categories, native = normalize_categories(
+            summary=summary,
+            desktop_categories=desktop_categories,
+        )
+    else:
+        native = [part.strip() for part in (desktop_categories or "").split(";") if part.strip()]
     label = SOURCE_LABELS.get(source, source)
     return {
         "provider": "appman",
@@ -567,75 +583,95 @@ def _to_summary(
         "installedVersion": installed_version,
         "installationScope": "user",
         "hasUpdater": False,
+        "packageFormat": package_format,
     }
 
 
-def _catalog_list_file(scope: str, user_home: str) -> list[str]:
-    share = _share_dir(user_home)
-    mapping = {
-        "default": ["x86_64-apps"],
-        "appimages": ["x86_64-appimages"],
-        "portable": ["x86_64-portable"],
-        "all": [
-            "x86_64-apps",
-            "x86_64-busybox",
-            "x86_64-coreutilsh",
-            "x86_64-python",
-            "x86_64-appbundle",
-            "x86_64-soarpkg",
-        ],
-    }
-    return [os.path.join(share, name) for name in mapping[scope]]
+_CATALOG_CACHE: dict[str, Any] = {"key": None, "rows": []}
 
 
-def _read_catalog_file(path: str) -> list[dict[str, Any]]:
-    if not os.path.isfile(path):
-        return []
-    try:
-        text = open(path, encoding="utf-8", errors="replace").read()
-    except OSError:
-        return []
-    rows = []
-    for entry in _parse_entries(text):
+def _module_text(user_home: str) -> str:
+    """Read install.am copies that decide whether Soar and AppBundle are enabled."""
+    info = config_info(user_home)
+    location = info.get("location")
+    candidates: list[str] = []
+    if location:
+        candidates.append(os.path.join(str(location), "appman", "modules", "install.am"))
+    candidates.append(os.path.join(_share_dir(user_home), "modules", "install.am"))
+    candidates.append("/usr/lib/am/modules/install.am")
+    candidates.append("/opt/am/modules/install.am")
+    chunks: list[str] = []
+    for path in candidates:
         try:
-            app_id = validate_appman_name(entry["appId"])
-        except EngineError:
+            with open(path, encoding="utf-8", errors="replace") as handle:
+                chunks.append(handle.read())
+        except OSError:
             continue
-        rows.append(
-            _to_summary(
-                app_id,
-                entry.get("summary") or "",
-                source_id=source_from_text(entry.get("summary") or ""),
-                desktop_categories=_desktop_categories(app_id),
-            )
-        )
+    return "\n".join(chunks)
+
+
+def _enabled_catalog_sources(user_home: str | None = None) -> list[str]:
+    home = user_home or _user_home()
+    return enabled_sources(_module_text(home))
+
+
+def catalog_index(user_home: str | None = None) -> list[dict[str, Any]]:
+    """Cached rows for every source this AppMan install can actually install."""
+    home = user_home or _user_home()
+    share = _share_dir(home)
+    sources = _enabled_catalog_sources(home)
+    names = [SOURCE_CATALOG_FILES[source] for source in sources]
+    names.extend(FORMAT_LIST_FILES.values())
+    key_parts: list[tuple[str, int | None, int | None]] = []
+    files: dict[str, str] = {}
+    for name in names:
+        path = os.path.join(share, name)
+        try:
+            st = os.stat(path)
+            key_parts.append((name, st.st_mtime_ns, st.st_size))
+            with open(path, encoding="utf-8", errors="replace") as handle:
+                files[name] = handle.read()
+        except OSError:
+            key_parts.append((name, None, None))
+    key = (tuple(sources), tuple(key_parts))
+    if _CATALOG_CACHE.get("key") == key:
+        cached = _CATALOG_CACHE.get("rows")
+        return cached if isinstance(cached, list) else []
+    rows = index_catalog_files(files, sources)
+    _CATALOG_CACHE["key"] = key
+    _CATALOG_CACHE["rows"] = rows
     return rows
 
 
-def _lookup_catalog_summary(app_id: str, source_id: str) -> str | None:
-    """Reuse the local AppMan catalog description already shown on browse cards."""
-    try:
-        scope = validate_search_scope(load_settings()["searchScope"])
-    except EngineError:
-        scope = "default"
-    matched: str | None = None
-    for path in _catalog_list_file(scope, _user_home()):
-        for entry in _read_catalog_file(path):
-            if entry.get("appId") != app_id:
-                continue
-            text = (entry.get("summary") or "").strip()
-            if not text:
-                continue
-            if entry.get("sourceId") == source_id:
-                return text
-            if matched is None:
-                matched = text
-    return matched
+def _lookup_catalog_entry(app_id: str, source_id: str) -> dict[str, Any] | None:
+    for entry in catalog_index():
+        if entry.get("appId") == app_id and entry.get("sourceId") == source_id:
+            return entry
+    return None
 
 
-def parse_search_output(stdout: str) -> list[dict[str, Any]]:
+def _catalog_summary_row(entry: dict[str, Any]) -> dict[str, Any]:
+    package_format = entry.get("packageFormat")
+    return _to_summary(
+        str(entry["appId"]),
+        str(entry.get("summary") or ""),
+        source_id=str(entry.get("sourceId") or "am"),
+        categories=list(entry.get("categories") or []),
+        package_format=package_format if isinstance(package_format, str) else None,
+    )
+
+
+def parse_search_output(
+    stdout: str,
+    indexed: dict[tuple[str, str], dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
     apps: list[dict[str, Any]] = []
     seen: set[tuple[str, str]] = set()
+    if indexed is None:
+        indexed = {
+            (str(entry.get("sourceId") or ""), str(entry.get("appId") or "")): entry
+            for entry in catalog_index()
+        }
     for entry in _parse_entries(stdout):
         try:
             app_id = validate_appman_name(entry["appId"])
@@ -647,12 +683,17 @@ def parse_search_output(stdout: str) -> list[dict[str, Any]]:
         if key in seen:
             continue
         seen.add(key)
+        catalog_row = indexed.get(key)
+        categories = list(catalog_row.get("categories") or []) if catalog_row else None
+        package_format = catalog_row.get("packageFormat") if catalog_row else None
         apps.append(
             _to_summary(
                 app_id,
                 summary,
                 source_id=source,
                 desktop_categories=_desktop_categories(app_id),
+                categories=categories,
+                package_format=package_format if isinstance(package_format, str) else None,
             )
         )
     return apps
@@ -666,6 +707,7 @@ async def status() -> dict[str, Any]:
         "available": bool(binary),
         "binary": binary,
         "searchScope": settings["searchScope"],
+        "catalogSources": _enabled_catalog_sources(),
         "config": config_info(),
         "trustLabel": (
             "AppMan downloads installation scripts from the GitHub AM database. "
@@ -707,7 +749,12 @@ async def search(query: str, scope: str | None = None) -> dict[str, Any]:
         timeout_sec=READ_TIMEOUT_SEC,
         binary=binary,
     )
-    apps = parse_search_output(command["stdout"])
+    index_rows = await asyncio.to_thread(catalog_index)
+    indexed = {
+        (str(entry.get("sourceId") or ""), str(entry.get("appId") or "")): entry
+        for entry in index_rows
+    }
+    apps = parse_search_output(command["stdout"], indexed)
     return {
         "ok": True,
         "query": trimmed,
@@ -719,37 +766,68 @@ async def search(query: str, scope: str | None = None) -> dict[str, Any]:
     }
 
 
-async def list_category(slug: str, scope: str | None = None) -> dict[str, Any]:
+async def list_category(
+    slug: str,
+    scope: str | None = None,
+    page: int = 1,
+    source_id: str = "",
+    package_format: str = "",
+) -> dict[str, Any]:
+    """Page through one browse slug across every database this AppMan can install.
+
+    ``scope`` is the search-scope setting. Category browse does not use it.
+    Source and package-format arguments are the browse filters.
+    """
+    del scope
     slug = (slug or "").strip()
-    if not is_known_category(slug):
+    if not is_appman_browse_slug(slug):
         raise EngineError("INVALID_ARGUMENT", "unknown store category")
+    page_number = coerce_page(page)
+    source_filter = normalize_source_filter(source_id)
+    format_filter = normalize_format_filter(package_format)
+    sources = _enabled_catalog_sources()
     binary = detect_binary()
     if not binary:
-        return {"ok": True, "apps": [], "totalHits": 0, "available": False, "slug": slug}
-    resolved_scope = validate_search_scope(scope or load_settings()["searchScope"])
-    rows: list[dict[str, Any]] = []
-    seen: set[tuple[str, str]] = set()
-    for path in _catalog_list_file(resolved_scope, _user_home()):
-        for app in _read_catalog_file(path):
-            key = (app["sourceId"], app["appId"])
-            if key in seen:
-                continue
-            seen.add(key)
-            categories = app.get("categories") or []
-            if slug == "other":
-                if categories:
-                    continue
-            elif slug not in categories:
-                continue
-            rows.append(app)
+        return {
+            "ok": True,
+            "apps": [],
+            "totalHits": 0,
+            "page": page_number,
+            "totalPages": 1,
+            "available": False,
+            "slug": slug,
+            "enabledSources": sources,
+        }
+    if source_filter != "all" and source_filter not in sources:
+        return {
+            "ok": True,
+            "slug": slug,
+            "apps": [],
+            "totalHits": 0,
+            "page": page_number,
+            "totalPages": 1,
+            "available": True,
+            "enabledSources": sources,
+            "sourceEnabled": False,
+        }
+    matched = filter_catalog_rows(
+        await asyncio.to_thread(catalog_index),
+        slug,
+        source_filter,
+        format_filter,
+    )
+    page_rows, total, total_pages = paginate_rows(matched, page_number)
     return {
         "ok": True,
         "slug": slug,
-        "apps": rows[:CATEGORY_BROWSE_CAP],
-        "totalHits": len(rows),
-        "truncated": len(rows) > CATEGORY_BROWSE_CAP,
-        "searchScope": resolved_scope,
+        "apps": [_catalog_summary_row(row) for row in page_rows],
+        "totalHits": total,
+        "page": page_number,
+        "totalPages": total_pages,
         "available": True,
+        "enabledSources": sources,
+        "sourceFilter": source_filter,
+        "packageFormat": format_filter,
     }
 
 
@@ -827,7 +905,8 @@ async def get_details(app_id: str, source_id: str = "am") -> dict[str, Any]:
         binary=binary,
     )
     parsed = _parse_about(command["stdout"])
-    catalog_summary = _lookup_catalog_summary(app_id, source_id)
+    indexed = await asyncio.to_thread(_lookup_catalog_entry, app_id, source_id)
+    catalog_summary = str(indexed.get("summary") or "").strip() if indexed else None
     about_text = (parsed.get("descriptionText") or "").strip() or None
     summary = catalog_summary or ((about_text[:180] if about_text else None))
     desktop = _desktop_categories(app_id) if parsed["installedState"] == "installed" else ""
@@ -844,6 +923,13 @@ async def get_details(app_id: str, source_id: str = "am") -> dict[str, Any]:
         classified, native = normalize_categories(summary=catalog_summary or "")
         app["categories"] = classified
         app["nativeCategories"] = native
+    if indexed:
+        merged = list(indexed.get("categories") or [])
+        for slug in app.get("categories") or []:
+            if slug not in merged and is_appman_browse_slug(str(slug)):
+                merged.append(slug)
+        app["categories"] = merged
+        app["packageFormat"] = indexed.get("packageFormat")
     app["descriptionText"] = about_text or catalog_summary
     app["homepageUrl"] = parsed.get("homepageUrl")
     app["screenshots"] = parsed.get("screenshots") or []
@@ -965,18 +1051,9 @@ def mutation_argv(operation: str, app_id: str, source_id: str) -> list[str]:
         # not sync AppMan itself. Do not add other --flags; unknown flags with
         # no program name become a full `appman -u` including self-sync.
         return ["-y", "-u", "--apps"]
-    app_id = validate_appman_name(app_id)
-    source_id = validate_source_id(source_id)
-    flags = list(SOURCE_FLAGS[source_id])
-    if operation == "install":
-        return ["-y", "-i", *flags, app_id]
-    if operation == "update":
-        # Never call `appman -u` without a program name. Extra --flags with no
-        # name are treated as empty ENTRIES and update every AM-updater app.
-        return ["-y", "-u", *flags, app_id]
-    if operation == "uninstall":
-        return ["-y", "-R", *flags, app_id]
-    raise EngineError("INVALID_ARGUMENT", f"unsupported operation {operation}")
+    # Never call `appman -u` without a program name. Extra --flags with no
+    # name are treated as empty ENTRIES and update every AM-updater app.
+    return source_mutation_args(operation, app_id, source_id)
 
 
 async def spawn_mutation(
