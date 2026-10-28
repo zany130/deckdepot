@@ -25,7 +25,7 @@ import {
   setSteamGridDbApiKey,
 } from "../api/steamGridDbBridge";
 import { confirmAction } from "../components/confirmAction";
-import { embeddedPageStyle } from "../components/storeLayout";
+import { embeddedPageContentStyle, embeddedPageStyle } from "../components/storeLayout";
 import { APPMAN_SEARCH_SCOPE_OPTIONS, AppManSearchScope } from "../types/provider";
 import { FlatpakInstallScopePreference, FlatpakScopeStatus } from "../types/flatpak";
 import { SteamGridDbStatus } from "../types/steamgriddb";
@@ -204,142 +204,144 @@ export default function SettingsRoute(): ReactElement {
       onCancelActionDescription="Back"
       style={embeddedPageStyle}
     >
-      <div>
-        <div style={{ fontSize: "28px", fontWeight: 700 }}>Settings</div>
-        <div style={{ opacity: 0.75, fontSize: "13px", marginTop: "4px" }}>
-          Provider settings stay on this page. SteamGridDB is optional Add to Steam
-          artwork. AppMan search scope is separate and does not change Flatpak.
+      <div style={embeddedPageContentStyle}>
+        <div>
+          <div style={{ fontSize: "28px", fontWeight: 700 }}>Settings</div>
+          <div style={{ opacity: 0.75, fontSize: "13px", marginTop: "4px" }}>
+            Provider settings stay on this page. SteamGridDB is optional Add to Steam
+            artwork. AppMan search scope is separate and does not change Flatpak.
+          </div>
         </div>
-      </div>
 
-      <div>
-        <div style={{ fontSize: "22px", fontWeight: 700 }}>Flatpak</div>
-        <div style={{ opacity: 0.75, fontSize: "13px", marginTop: "4px" }}>
-          This setting chooses the default Flathub install when both user and system
-          Flathub remotes exist. It does not hide other configured remotes, and
-          DeckDepot does not create missing remotes. Already-installed apps keep
-          their real user or system identity.
+        <div>
+          <div style={{ fontSize: "22px", fontWeight: 700 }}>Flatpak</div>
+          <div style={{ opacity: 0.75, fontSize: "13px", marginTop: "4px" }}>
+            This setting chooses the default Flathub install when both user and system
+            Flathub remotes exist. It does not hide other configured remotes, and
+            DeckDepot does not create missing remotes. Already-installed apps keep
+            their real user or system identity.
+          </div>
         </div>
-      </div>
-      <div style={{ opacity: 0.9 }}>{resolvedLabel}</div>
-      {discoverRemotes.length > 0 ? (
-        <div style={{ opacity: 0.8, fontSize: "13px" }}>
-          Discover uses: {discoverRemotes.join(", ")}. Remotes marked not to
-          enumerate stay on Installed only.
-        </div>
-      ) : null}
-      {flatpakScope && flatpakScope.ok && !flatpakScope.systemMutationsAvailable ? (
-        <div style={{ opacity: 0.8, fontSize: "13px" }}>
-          System management is currently unavailable
-          {flatpakScope.bridge?.reason ? `: ${flatpakScope.bridge.reason}` : "."}
-        </div>
-      ) : null}
-      <SettingsDropdown
-        label="Default Flatpak install scope"
-        description="Automatic follows the host for Flathub: user-only → user, system-only → system, both → system. Third-party remotes keep the scope they are configured in."
-        rgOptions={FLATPAK_SCOPE_OPTIONS.map((item) => ({
-          data: item.value,
-          label: item.label,
-        }))}
-        selectedOption={installPreference}
-        disabled={busy || !(flatpakScope && flatpakScope.ok)}
-        onChange={(option) => {
-          const value = option.data as FlatpakInstallScopePreference;
-          if (value && value !== installPreference) {
-            void changeFlatpakInstallScope(value);
-          }
-        }}
-      />
-
-      <div>
-        <div style={{ fontSize: "22px", fontWeight: 700 }}>Content Filters</div>
-      </div>
-      {CONTENT_FILTER_ROWS.map((row) => (
-        <ToggleField
-          key={row.key}
-          label={row.label}
-          description={row.description}
-          checked={contentFilters[row.key]}
-          disabled={busy}
-          highlightOnFocus
-          onChange={(checked) => {
-            setBusy(true);
-            setError(null);
-            void persistContentFilter(row.key, checked)
-              .then((next) => setContentFilters(next))
-              .catch((exc) => setError(String(exc)))
-              .finally(() => setBusy(false));
+        <div style={{ opacity: 0.9 }}>{resolvedLabel}</div>
+        {discoverRemotes.length > 0 ? (
+          <div style={{ opacity: 0.8, fontSize: "13px" }}>
+            Discover uses: {discoverRemotes.join(", ")}. Remotes marked not to
+            enumerate stay on Installed only.
+          </div>
+        ) : null}
+        {flatpakScope && flatpakScope.ok && !flatpakScope.systemMutationsAvailable ? (
+          <div style={{ opacity: 0.8, fontSize: "13px" }}>
+            System management is currently unavailable
+            {flatpakScope.bridge?.reason ? `: ${flatpakScope.bridge.reason}` : "."}
+          </div>
+        ) : null}
+        <SettingsDropdown
+          label="Default Flatpak install scope"
+          description="Automatic follows the host for Flathub: user-only → user, system-only → system, both → system. Third-party remotes keep the scope they are configured in."
+          rgOptions={FLATPAK_SCOPE_OPTIONS.map((item) => ({
+            data: item.value,
+            label: item.label,
+          }))}
+          selectedOption={installPreference}
+          disabled={busy || !(flatpakScope && flatpakScope.ok)}
+          onChange={(option) => {
+            const value = option.data as FlatpakInstallScopePreference;
+            if (value && value !== installPreference) {
+              void changeFlatpakInstallScope(value);
+            }
           }}
         />
-      ))}
 
-      <div>
-        <div style={{ fontSize: "22px", fontWeight: 700 }}>Flatpak / SteamGridDB</div>
-        <div style={{ opacity: 0.75, fontSize: "13px", marginTop: "4px" }}>
-          SteamGridDB is optional. DeckDepot takes the first matching game and the first
-          image in each supported category (Capsule, Wide Capsule, Hero, Logo, Icon).
-          For browsing or manual picks, use the dedicated SteamGridDB plugin.
+        <div>
+          <div style={{ fontSize: "22px", fontWeight: 700 }}>Content Filters</div>
         </div>
-      </div>
+        {CONTENT_FILTER_ROWS.map((row) => (
+          <ToggleField
+            key={row.key}
+            label={row.label}
+            description={row.description}
+            checked={contentFilters[row.key]}
+            disabled={busy}
+            highlightOnFocus
+            onChange={(checked) => {
+              setBusy(true);
+              setError(null);
+              void persistContentFilter(row.key, checked)
+                .then((next) => setContentFilters(next))
+                .catch((exc) => setError(String(exc)))
+                .finally(() => setBusy(false));
+            }}
+          />
+        ))}
 
-      <div style={{ opacity: 0.9 }}>{statusLine(status)}</div>
-      {error ? <div style={{ color: "#ff8a8a" }}>{error}</div> : null}
+        <div>
+          <div style={{ fontSize: "22px", fontWeight: 700 }}>Flatpak / SteamGridDB</div>
+          <div style={{ opacity: 0.75, fontSize: "13px", marginTop: "4px" }}>
+            SteamGridDB is optional. DeckDepot takes the first matching game and the first
+            image in each supported category (Capsule, Wide Capsule, Hero, Logo, Icon).
+            For browsing or manual picks, use the dedicated SteamGridDB plugin.
+          </div>
+        </div>
 
-      <TextField
-        label="SteamGridDB API key"
-        bIsPassword
-        value={draft}
-        disabled={busy}
-        onChange={(evt) => setDraft(evt.target.value)}
-      />
+        <div style={{ opacity: 0.9 }}>{statusLine(status)}</div>
+        {error ? <div style={{ color: "#ff8a8a" }}>{error}</div> : null}
 
-      <Focusable flow-children="row" style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
-        <DialogButton preferredFocus disabled={busy || !draft.trim()} onClick={() => void save()}>
-          Save key
-        </DialogButton>
-        {configured ? (
-          <DialogButton disabled={busy} onClick={() => void clear()}>
-            Delete key
+        <TextField
+          label="SteamGridDB API key"
+          bIsPassword
+          value={draft}
+          disabled={busy}
+          onChange={(evt) => setDraft(evt.target.value)}
+        />
+
+        <Focusable flow-children="row" style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+          <DialogButton preferredFocus disabled={busy || !draft.trim()} onClick={() => void save()}>
+            Save key
           </DialogButton>
-        ) : null}
-      </Focusable>
+          {configured ? (
+            <DialogButton disabled={busy} onClick={() => void clear()}>
+              Delete key
+            </DialogButton>
+          ) : null}
+        </Focusable>
 
-      <div>
-        <div style={{ fontSize: "22px", fontWeight: 700 }}>AppMan</div>
-        <div style={{ opacity: 0.75, fontSize: "13px", marginTop: "4px" }}>
-          Portable apps use the same Games, Utilities, Audio & Video, Graphics,
-          Network, Office, and Development tabs. AppMan is labeled as a separate
-          source. Uncategorized AppMan apps stay in search and installed, not a new
-          tab. DeckDepot does not launch AppMan apps.
+        <div>
+          <div style={{ fontSize: "22px", fontWeight: 700 }}>AppMan</div>
+          <div style={{ opacity: 0.75, fontSize: "13px", marginTop: "4px" }}>
+            Portable apps use the same Games, Utilities, Audio & Video, Graphics,
+            Network, Office, and Development tabs. AppMan is labeled as a separate
+            source. Uncategorized AppMan apps stay in search and installed, not a new
+            tab. DeckDepot does not launch AppMan apps.
+          </div>
         </div>
+        <div style={{ opacity: 0.9 }}>
+          {appmanStatus
+            ? appmanStatus.available
+              ? `Detected ${appmanStatus.version || "AppMan"}${
+                  appmanStatus.config?.location
+                    ? ` · apps in ${appmanStatus.config.location}`
+                    : ""
+                }`
+              : "AppMan is not installed for this user. DeckDepot does not vendor it."
+            : "Loading AppMan settings…"}
+        </div>
+        <SettingsDropdown
+          label="AppMan search scope"
+          description="Default uses appman -q. All includes third-party databases. This is not a --pkg query."
+          rgOptions={APPMAN_SEARCH_SCOPE_OPTIONS.map((item) => ({
+            data: item.value,
+            label: item.label,
+          }))}
+          selectedOption={searchScope}
+          disabled={busy || !appmanStatus?.available}
+          onChange={(option) => {
+            const value = option.data as AppManSearchScope;
+            if (value && value !== searchScope) {
+              void changeScope(value);
+            }
+          }}
+        />
       </div>
-      <div style={{ opacity: 0.9 }}>
-        {appmanStatus
-          ? appmanStatus.available
-            ? `Detected ${appmanStatus.version || "AppMan"}${
-                appmanStatus.config?.location
-                  ? ` · apps in ${appmanStatus.config.location}`
-                  : ""
-              }`
-            : "AppMan is not installed for this user. DeckDepot does not vendor it."
-          : "Loading AppMan settings…"}
-      </div>
-      <SettingsDropdown
-        label="AppMan search scope"
-        description="Default uses appman -q. All includes third-party databases. This is not a --pkg query."
-        rgOptions={APPMAN_SEARCH_SCOPE_OPTIONS.map((item) => ({
-          data: item.value,
-          label: item.label,
-        }))}
-        selectedOption={searchScope}
-        disabled={busy || !appmanStatus?.available}
-        onChange={(option) => {
-          const value = option.data as AppManSearchScope;
-          if (value && value !== searchScope) {
-            void changeScope(value);
-          }
-        }}
-      />
     </Focusable>
   );
 }

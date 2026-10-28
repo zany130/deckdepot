@@ -24,14 +24,29 @@ export const storePageStyle: CSSProperties = {
   gap: "16px",
 };
 
+const embeddedPageGap = "16px";
+
 export const embeddedPageStyle: CSSProperties = {
   height: "100%",
   overflowY: "auto",
   padding: "16px 24px 40px",
-  gap: "16px",
+  gap: embeddedPageGap,
   display: "flex",
   flexDirection: "column",
   boxSizing: "border-box",
+};
+
+// Direct children of embeddedPageStyle are column flex items and default to
+// flex-shrink: 1. Decky Field, ToggleField, and TextField are nested flex rows
+// whose minimum height can collapse below the label and description, so those
+// rows squash instead of extending the scroll height. This stack is not
+// height-bounded, and flex: none keeps it from shrinking in the page.
+export const embeddedPageContentStyle: CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: embeddedPageGap,
+  flex: "none",
+  minWidth: 0,
 };
 
 export const browsePaneStyle: CSSProperties = {
