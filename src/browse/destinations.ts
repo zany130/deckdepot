@@ -22,6 +22,11 @@ export type BrowseDestination = {
   flathubCollection?: string;
   /** False for sections Flathub does not publish, such as Flatpark AI and Finance. */
   flathubCategory?: boolean;
+  /**
+   * False keeps the destination out of the top bar. It still opens from
+   * All Categories. Omitted destinations stay on the bar.
+   */
+  bar?: boolean;
   cacheTtlMs: number;
 };
 
@@ -35,9 +40,9 @@ const CATEGORIES: BrowseDestination[] = [
   { id: "graphics", label: "Graphics & Photography", kind: "category", providers: ["flatpak", "appman"], cacheTtlMs: TEN_MINUTES },
   { id: "network", label: "Networking", kind: "category", providers: ["flatpak"], cacheTtlMs: TEN_MINUTES },
   { id: "office", label: "Productivity", kind: "category", providers: ["flatpak"], cacheTtlMs: TEN_MINUTES },
-  { id: "finance", label: "Finance", kind: "category", providers: ["flatpak"], flathubCategory: false, cacheTtlMs: TEN_MINUTES },
+  { id: "finance", label: "Finance", kind: "category", providers: ["flatpak"], flathubCategory: false, bar: false, cacheTtlMs: TEN_MINUTES },
   { id: "development", label: "Developer Tools", kind: "category", providers: ["flatpak", "appman"], cacheTtlMs: TEN_MINUTES },
-  { id: "ai", label: "AI", kind: "category", providers: ["flatpak"], flathubCategory: false, cacheTtlMs: TEN_MINUTES },
+  { id: "ai", label: "AI", kind: "category", providers: ["flatpak"], flathubCategory: false, bar: false, cacheTtlMs: TEN_MINUTES },
   { id: "education", label: "Education", kind: "category", providers: ["flatpak"], cacheTtlMs: TEN_MINUTES },
   { id: "science", label: "Science", kind: "category", providers: ["flatpak"], cacheTtlMs: TEN_MINUTES },
   { id: "system", label: "System", kind: "category", providers: ["flatpak"], cacheTtlMs: TEN_MINUTES },
@@ -50,8 +55,15 @@ const APPMAN_TABS: BrowseDestination[] = [
   { id: "kde", label: "KDE", kind: "category", providers: ["appman"], cacheTtlMs: TEN_MINUTES },
   { id: "metapackages", label: "Metapackages", kind: "category", providers: ["appman"], cacheTtlMs: TEN_MINUTES },
   { id: "wine", label: "Wine", kind: "category", providers: ["appman"], cacheTtlMs: TEN_MINUTES },
-  { id: "all-categories", label: "All Categories", kind: "index", providers: ["appman"], cacheTtlMs: TEN_MINUTES },
 ];
+
+const ALL_CATEGORIES: BrowseDestination = {
+  id: "all-categories",
+  label: "All Categories",
+  kind: "index",
+  providers: ["flatpak", "appman"],
+  cacheTtlMs: TEN_MINUTES,
+};
 
 /**
  * AM software categories. Keep the ids aligned with
@@ -112,22 +124,6 @@ export const APPMAN_FORMAT_FILTERS: ReadonlyArray<{ id: string; label: string }>
 
 const COLLECTIONS: BrowseDestination[] = [
   {
-    id: "new-arrivals",
-    label: "New Arrivals",
-    kind: "collection",
-    providers: ["flatpak"],
-    flathubCollection: "recently-added",
-    cacheTtlMs: THREE_MINUTES,
-  },
-  {
-    id: "recently-updated",
-    label: "Recently Updated",
-    kind: "collection",
-    providers: ["flatpak"],
-    flathubCollection: "recently-updated",
-    cacheTtlMs: THREE_MINUTES,
-  },
-  {
     id: "trending",
     label: "Trending",
     kind: "collection",
@@ -136,11 +132,30 @@ const COLLECTIONS: BrowseDestination[] = [
     cacheTtlMs: THREE_MINUTES,
   },
   {
+    id: "new-arrivals",
+    label: "New Arrivals",
+    kind: "collection",
+    providers: ["flatpak"],
+    flathubCollection: "recently-added",
+    bar: false,
+    cacheTtlMs: THREE_MINUTES,
+  },
+  {
+    id: "recently-updated",
+    label: "Recently Updated",
+    kind: "collection",
+    providers: ["flatpak"],
+    flathubCollection: "recently-updated",
+    bar: false,
+    cacheTtlMs: THREE_MINUTES,
+  },
+  {
     id: "popular",
     label: "Popular",
     kind: "collection",
     providers: ["flatpak"],
     flathubCollection: "popular",
+    bar: false,
     cacheTtlMs: THREE_MINUTES,
   },
 ];
@@ -149,7 +164,33 @@ export const BROWSE_DESTINATIONS: readonly BrowseDestination[] = [
   ...COLLECTIONS,
   ...CATEGORIES,
   ...APPMAN_TABS,
+  ALL_CATEGORIES,
 ];
+
+export type IndexSection = {
+  title: string;
+  entries: ReadonlyArray<{ id: string; label: string }>;
+};
+
+/** Flatpak entries that open from All Categories and are not top-bar tabs. */
+export function flatpakIndexSections(): IndexSection[] {
+  return [
+    {
+      title: "Discovery",
+      entries: COLLECTIONS.filter((item) => item.bar === false).map((item) => ({
+        id: item.id,
+        label: item.label,
+      })),
+    },
+    {
+      title: "Categories",
+      entries: CATEGORIES.filter((item) => item.providers.includes("flatpak")).map((item) => ({
+        id: item.id,
+        label: item.label,
+      })),
+    },
+  ];
+}
 
 const BY_ID = new Map(BROWSE_DESTINATIONS.map((item) => [item.id, item]));
 
@@ -158,7 +199,7 @@ export function destinationById(id: string): BrowseDestination | undefined {
 }
 
 export function destinationsFor(provider: ProviderId): BrowseDestination[] {
-  return BROWSE_DESTINATIONS.filter((item) => item.providers.includes(provider));
+  return BROWSE_DESTINATIONS.filter((item) => item.providers.includes(provider) && item.bar !== false);
 }
 
 export function defaultDestination(provider: ProviderId): string {
@@ -194,4 +235,8 @@ export function appmanCategoryLabel(id: string): string {
     return "All applications";
   }
   return APPMAN_SOFTWARE_CATEGORIES.find((item) => item.id === id)?.label ?? destinationById(id)?.label ?? id;
+}
+
+export function browseEntryLabel(id: string): string {
+  return destinationById(id)?.label ?? appmanCategoryLabel(id);
 }

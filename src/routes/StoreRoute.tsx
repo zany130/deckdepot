@@ -5,7 +5,7 @@ import { getCatalogDetails, listProviderCategory, searchProviderCatalog } from "
 import { mergeBrowseApps } from "../api/catalogMerge";
 import {
   APPMAN_EVERYTHING_ID,
-  appmanCategoryLabel,
+  browseEntryLabel,
   cycleDestination,
   defaultDestination,
   destinationById,
@@ -30,6 +30,7 @@ import { useSteamShortcuts } from "../api/useSteamShortcuts";
 import AppDetailsView from "../components/AppDetailsView";
 import AppmanBrowseFilters from "../components/AppmanBrowseFilters";
 import AppmanCategoryIndex from "../components/AppmanCategoryIndex";
+import FlatpakCategoryIndex from "../components/FlatpakCategoryIndex";
 import CatalogGrid from "../components/CatalogGrid";
 import CategoryTabs from "../components/CategoryTabs";
 import SearchOverlay from "../components/SearchOverlay";
@@ -797,13 +798,13 @@ export default function StoreRoute({
 
   const activeDestination = destinationById(activeCategory);
   const browseSlug = activeCategory === "all-categories" ? nestedSlug : activeCategory;
-  const showingIndex = provider === "appman" && activeCategory === "all-categories" && !browseSlug;
+  const showingIndex = activeCategory === "all-categories" && !browseSlug;
   const activeLabel = browseSlug
     ? activeCategory === "all-categories"
-      ? appmanCategoryLabel(browseSlug)
+      ? browseEntryLabel(browseSlug)
       : activeDestination?.label ?? browseSlug
     : activeDestination?.label ?? activeCategory;
-  const sourceNote = activeDestination?.kind === "collection" ? " · Flathub" : "";
+  const sourceNote = destinationById(browseSlug || "")?.kind === "collection" ? " · Flathub" : "";
   const countLabel =
     browseTotalHits > filteredBrowse.apps.length
       ? `${filteredBrowse.apps.length} of ${browseTotalHits}`
@@ -811,18 +812,24 @@ export default function StoreRoute({
 
   const browsePane = showingIndex ? (
     <div style={{ height: "100%", display: "flex", flexDirection: "column", minHeight: 0 }}>
-      <AppmanBrowseFilters
-        source={sourceFilter}
-        format={formatFilter}
-        sources={catalogSources}
-        onSource={(id) => changeAppmanFilter("source", id)}
-        onFormat={(id) => changeAppmanFilter("format", id)}
-      />
-      <div style={{ flex: 1, minHeight: 0 }}>
-        <AppmanCategoryIndex
-          onOpen={openNestedCategory}
-          onOpenEverything={() => openNestedCategory(APPMAN_EVERYTHING_ID)}
+      {provider === "appman" ? (
+        <AppmanBrowseFilters
+          source={sourceFilter}
+          format={formatFilter}
+          sources={catalogSources}
+          onSource={(id) => changeAppmanFilter("source", id)}
+          onFormat={(id) => changeAppmanFilter("format", id)}
         />
+      ) : null}
+      <div style={{ flex: 1, minHeight: 0 }}>
+        {provider === "appman" ? (
+          <AppmanCategoryIndex
+            onOpen={openNestedCategory}
+            onOpenEverything={() => openNestedCategory(APPMAN_EVERYTHING_ID)}
+          />
+        ) : (
+          <FlatpakCategoryIndex onOpen={openNestedCategory} />
+        )}
       </div>
     </div>
   ) : (
