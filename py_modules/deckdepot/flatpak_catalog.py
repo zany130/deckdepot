@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from deckdepot.categories import slugs_for_tokens
-from deckdepot.diagnostics import log_info
+from deckdepot.diagnostics import helper_ssl_context, log_info
 from deckdepot.errors import EngineError
 from deckdepot.flatpak_engine import (
     COMMAND_TIMEOUT_SEC,
@@ -809,12 +809,16 @@ def _flatpark_ai_ids_sync() -> list[str]:
 
     AI is not an AppStream category. Flatpark stores it on the catalog entry
     and keeps a normal desktop category in the metainfo.
+
+    PluginLoader's default trust store cannot verify this host. Decky's
+    certificate helper can, so the download uses that context.
     """
+    context, _helper = helper_ssl_context()
     request = urllib.request.Request(
         FLATPARK_CATALOG_URL,
         headers={"User-Agent": "DeckDepot", "Accept": "application/json"},
     )
-    with urllib.request.urlopen(request, timeout=15) as response:
+    with urllib.request.urlopen(request, timeout=15, context=context) as response:
         payload = json.loads(response.read().decode())
     apps = payload if isinstance(payload, list) else payload.get("apps") or []
     ids: list[str] = []

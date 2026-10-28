@@ -20,7 +20,8 @@ from deckdepot.categories import (
     normalize_appman_categories,
     slugs_for_tokens,
 )
-from deckdepot.flatpak_catalog import _parse_appstream_details
+from deckdepot import flatpak_catalog
+from deckdepot.flatpak_catalog import _flatpark_ai_ids_sync, _parse_appstream_details
 
 
 EXPECTED = (
@@ -99,6 +100,53 @@ class CategoryTests(unittest.TestCase):
             parsed["nativeCategories"],
             ["Game", "Education", "NotARealCategory"],
         )
+
+
+class _Body:
+    def __init__(self, payload: bytes) -> None:
+        self.payload = payload
+
+    def read(self) -> bytes:
+        return self.payload
+
+    def __enter__(self) -> "_Body":
+        return self
+
+    def __exit__(self, *_args: object) -> bool:
+        return False
+
+
+class FlatparkAiCatalogTests(unittest.TestCase):
+    def test_download_uses_decky_certificate_helper(self) -> None:
+        seen: dict[str, object] = {}
+        sentinel = object()
+
+        def helper() -> tuple[object, str]:
+            return sentinel, "helpers.get_ssl_context"
+
+        def urlopen(request: object, timeout: int, context: object) -> _Body:
+            seen["url"] = request.full_url
+            seen["timeout"] = timeout
+            seen["context"] = context
+            return _Body(
+                b'[{"id":"org.example.Ai","section":"ai"},'
+                b'{"id":"org.example.Game","section":"games"}]'
+            )
+
+        original_helper = flatpak_catalog.helper_ssl_context
+        original_urlopen = flatpak_catalog.urllib.request.urlopen
+        flatpak_catalog.helper_ssl_context = helper
+        flatpak_catalog.urllib.request.urlopen = urlopen
+        try:
+            ids = _flatpark_ai_ids_sync()
+        finally:
+            flatpak_catalog.helper_ssl_context = original_helper
+            flatpak_catalog.urllib.request.urlopen = original_urlopen
+
+        self.assertEqual(ids, ["org.example.Ai"])
+        self.assertEqual(seen["url"], "https://flatpark.org/search-index.json")
+        self.assertEqual(seen["timeout"], 15)
+        self.assertIs(seen["context"], sentinel)
 
 
 if __name__ == "__main__":
