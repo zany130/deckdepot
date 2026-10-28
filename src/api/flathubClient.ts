@@ -2,8 +2,10 @@ import { fetchNoCors } from "@decky/api";
 import {
   FLATHUB_APPSTREAM_URL,
   FLATHUB_CATEGORY_URL,
+  FLATHUB_COLLECTION_URL,
   FLATHUB_SEARCH_URL,
 } from "../constants";
+import { categoryIds } from "../browse/destinations";
 import {
   CatalogAppSummary,
   CatalogDetailsResult,
@@ -25,15 +27,7 @@ const RETRY_DELAY_MS = 400;
 const MAX_ATTEMPTS = 3;
 const CATEGORY_PAGE_SIZE = 20;
 
-export const CURATED_CATEGORIES = [
-  { slug: "game", label: "Games" },
-  { slug: "utility", label: "Utilities" },
-  { slug: "audiovideo", label: "Audio & Video" },
-  { slug: "graphics", label: "Graphics" },
-  { slug: "network", label: "Network" },
-  { slug: "office", label: "Office" },
-  { slug: "development", label: "Development" },
-] as const;
+const KNOWN_CATEGORY_IDS = new Set(categoryIds());
 
 function failure(
   errorCode: CatalogFailure["errorCode"],
@@ -163,6 +157,7 @@ function toSummary(hit: {
   summary?: string | null;
   icon?: string | null;
   main_categories?: string | null;
+  sub_categories?: string[] | null;
   developer_name?: string | null;
   project_license?: string | null;
   is_free_license?: boolean | null;
@@ -174,7 +169,24 @@ function toSummary(hit: {
   if (!appId || !name) {
     return null;
   }
-  const categories = hit.main_categories?.trim() ? [hit.main_categories.trim()] : [];
+  const categories: string[] = [];
+  const nativeCategories: string[] = [];
+  const main = hit.main_categories?.trim() || "";
+  if (main) {
+    const slug = main.toLowerCase();
+    categories.push(KNOWN_CATEGORY_IDS.has(slug) && slug !== "other" ? slug : main);
+  }
+  for (const raw of hit.sub_categories ?? []) {
+    const token = raw.trim();
+    if (!token) {
+      continue;
+    }
+    nativeCategories.push(token);
+    const slug = token.toLowerCase();
+    if (KNOWN_CATEGORY_IDS.has(slug) && slug !== "other" && !categories.includes(slug)) {
+      categories.push(slug);
+    }
+  }
   return {
     provider: "flatpak",
     appId,
@@ -182,6 +194,7 @@ function toSummary(hit: {
     summary: hit.summary?.trim() || undefined,
     iconUrl: httpsUrl(hit.icon),
     categories,
+    nativeCategories: nativeCategories.length > 0 ? nativeCategories : undefined,
     developerName: hit.developer_name?.trim() || undefined,
     installedState: "unknown",
     remoteName: "flathub",
@@ -383,6 +396,21 @@ export async function listFlathubCategory(
     return mapFetchError(fetched);
   }
   return parseSearchPayload(fetched.value, slug);
+}
+
+export async function listFlathubCollection(
+  path: string,
+  options: { page?: number; signal?: AbortSignal } = {}
+): Promise<CatalogSearchResult> {
+  const page = options.page ?? 1;
+  const url =
+    `${FLATHUB_COLLECTION_URL}${encodeURIComponent(path)}` +
+    `?page=${page}&per_page=${CATEGORY_PAGE_SIZE}`;
+  const fetched = await fetchJsonRetry(url, { method: "GET" }, options.signal);
+  if (!fetched.ok) {
+    return mapFetchError(fetched);
+  }
+  return parseSearchPayload(fetched.value, path);
 }
 
 export async function getFlathubAppDetails(

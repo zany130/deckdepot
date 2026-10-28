@@ -6,6 +6,7 @@ export const SearchHitSchema = z.object({
   summary: z.string().nullable().optional(),
   icon: z.string().nullable().optional(),
   main_categories: z.string().nullable().optional(),
+  sub_categories: z.array(z.string()).nullable().optional(),
   developer_name: z.string().nullable().optional(),
   description: z.string().nullable().optional(),
   project_license: z.string().nullable().optional(),

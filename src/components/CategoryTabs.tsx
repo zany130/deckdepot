@@ -4,7 +4,8 @@ import {
   type GamepadEvent,
   type Tab,
 } from "@decky/ui";
-import type { ReactElement, ReactNode } from "react";
+import { useEffect, useRef, type ReactElement, type ReactNode } from "react";
+import { cycleDestination } from "../browse/destinations";
 import { consumeGamepadEvent } from "./storeLayout";
 
 export default function CategoryTabs({
@@ -21,11 +22,19 @@ export default function CategoryTabs({
   tabs: Tab[];
 }): ReactElement {
   const tabItems = tabs;
+  const tabRefs = useRef(new Map<string, HTMLDivElement>());
+
+  useEffect(() => {
+    tabRefs.current.get(activeTab)?.scrollIntoView({
+      inline: "nearest",
+      block: "nearest",
+    });
+  }, [activeTab]);
 
   return (
     <Focusable
       flow-children="column"
-      style={{ height: "100%", display: "flex", flexDirection: "column" }}
+      style={{ height: "100%", display: "flex", flexDirection: "column", minWidth: 0 }}
       onOKActionDescription="Select"
       onCancelActionDescription="Back"
       onOptionsActionDescription={onSearch ? "Search" : undefined}
@@ -46,6 +55,10 @@ export default function CategoryTabs({
           padding: "10px 18px 12px",
           overflowX: "auto",
           flexShrink: 0,
+          minWidth: 0,
+          maxWidth: "100%",
+          width: "100%",
+          boxSizing: "border-box",
           borderBottom: "1px solid rgba(255,255,255,0.08)",
         }}
         actionDescriptionMap={{
@@ -61,9 +74,8 @@ export default function CategoryTabs({
           }
           consumeGamepadEvent(evt);
           const ids = tabItems.map((tab) => tab.id);
-          const index = Math.max(0, ids.indexOf(activeTab));
           const delta = evt.detail.button === GamepadButton.BUMPER_LEFT ? -1 : 1;
-          onShowTab(ids[(index + delta + ids.length) % ids.length]);
+          onShowTab(cycleDestination(ids, activeTab, delta));
         }}
       >
         {tabItems.map((tab) => {
@@ -71,6 +83,13 @@ export default function CategoryTabs({
           return (
             <Focusable
               key={tab.id}
+              ref={(node) => {
+                if (node) {
+                  tabRefs.current.set(tab.id, node);
+                } else {
+                  tabRefs.current.delete(tab.id);
+                }
+              }}
               onActivate={() => onShowTab(tab.id)}
               onOKActionDescription="Select"
               style={{

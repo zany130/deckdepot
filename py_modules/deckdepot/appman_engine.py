@@ -15,6 +15,7 @@ from typing import Any
 import decky
 
 from deckdepot.appman_categories import normalize_categories
+from deckdepot.categories import is_known_category
 from deckdepot.appman_ids import (
     SCOPE_FLAGS,
     SOURCE_FLAGS,
@@ -546,7 +547,7 @@ def _to_summary(
 ) -> dict[str, Any]:
     source = validate_source_id(source_id or source_from_text(summary))
     categories, native = normalize_categories(
-        summary=f"{app_id} {summary}",
+        summary=summary,
         desktop_categories=desktop_categories,
     )
     label = SOURCE_LABELS.get(source, source)
@@ -600,7 +601,14 @@ def _read_catalog_file(path: str) -> list[dict[str, Any]]:
             app_id = validate_appman_name(entry["appId"])
         except EngineError:
             continue
-        rows.append(_to_summary(app_id, entry.get("summary") or "", source_id=source_from_text(entry.get("summary") or "")))
+        rows.append(
+            _to_summary(
+                app_id,
+                entry.get("summary") or "",
+                source_id=source_from_text(entry.get("summary") or ""),
+                desktop_categories=_desktop_categories(app_id),
+            )
+        )
     return rows
 
 
@@ -639,7 +647,14 @@ def parse_search_output(stdout: str) -> list[dict[str, Any]]:
         if key in seen:
             continue
         seen.add(key)
-        apps.append(_to_summary(app_id, summary, source_id=source))
+        apps.append(
+            _to_summary(
+                app_id,
+                summary,
+                source_id=source,
+                desktop_categories=_desktop_categories(app_id),
+            )
+        )
     return apps
 
 
@@ -706,15 +721,7 @@ async def search(query: str, scope: str | None = None) -> dict[str, Any]:
 
 async def list_category(slug: str, scope: str | None = None) -> dict[str, Any]:
     slug = (slug or "").strip()
-    if slug not in {
-        "game",
-        "utility",
-        "audiovideo",
-        "graphics",
-        "network",
-        "office",
-        "development",
-    }:
+    if not is_known_category(slug):
         raise EngineError("INVALID_ARGUMENT", "unknown store category")
     binary = detect_binary()
     if not binary:
@@ -728,8 +735,13 @@ async def list_category(slug: str, scope: str | None = None) -> dict[str, Any]:
             if key in seen:
                 continue
             seen.add(key)
-            if slug in (app.get("categories") or []):
-                rows.append(app)
+            categories = app.get("categories") or []
+            if slug == "other":
+                if categories:
+                    continue
+            elif slug not in categories:
+                continue
+            rows.append(app)
     return {
         "ok": True,
         "slug": slug,
@@ -828,6 +840,10 @@ async def get_details(app_id: str, source_id: str = "am") -> dict[str, Any]:
         desktop_categories=desktop,
         resolve_local_icon=parsed["installedState"] == "installed",
     )
+    if not desktop:
+        classified, native = normalize_categories(summary=catalog_summary or "")
+        app["categories"] = classified
+        app["nativeCategories"] = native
     app["descriptionText"] = about_text or catalog_summary
     app["homepageUrl"] = parsed.get("homepageUrl")
     app["screenshots"] = parsed.get("screenshots") or []

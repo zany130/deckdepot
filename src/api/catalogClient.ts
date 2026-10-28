@@ -1,6 +1,8 @@
+import { destinationById } from "../browse/destinations";
 import {
   getFlathubAppDetails,
   listFlathubCategory,
+  listFlathubCollection,
   searchFlathub,
 } from "./flathubClient";
 import { getAppmanCategory, getAppmanDetails, getAppmanSearch } from "./appmanBridge";
@@ -18,7 +20,8 @@ import {
   CatalogSearchResult,
   mergeAppmanCatalogDetails,
 } from "../types/catalog";
-import { catalogKey, isFlathubSource, ProviderId } from "../types/provider";
+import { isFlathubSource, ProviderId } from "../types/provider";
+import { mergeBrowseApps } from "./catalogMerge";
 import { presentFlatpakSearch } from "./flatpakSearchState";
 
 function asCatalogFailure(result: { errorCode: string; errorMessage: string }): CatalogFailure {
@@ -81,19 +84,16 @@ export async function searchFlatpakCatalog(
   const httpPromise = searchFlathub(query, options);
   const [host, http] = await Promise.all([hostPromise, httpPromise]);
   if (page > 1) {
-    return http.ok ? http : host.ok ? host : http;
+    if (http.ok) {
+      return { ...http, apps: mergeBrowseApps(http.apps) };
+    }
+    return host.ok ? host : http;
   }
   const hostApps = host.ok ? host.apps : [];
   const thirdParty = hostApps.filter((app) => !isFlathubSource(app));
   const hostFlathub = hostApps.filter((app) => isFlathubSource(app));
   const httpApps = http.ok ? http.apps : [];
-  const enrichedHostFlathub = hostFlathub.map((app) => {
-    const match = httpApps.find((hit) => hit.appId === app.appId);
-    return match ? enrichFlathubRow(app, match) : app;
-  });
-  const hostFlathubIds = new Set(hostFlathub.map((app) => app.appId));
-  const httpOnly = httpApps.filter((app) => !hostFlathubIds.has(app.appId));
-  const apps = [...thirdParty, ...enrichedHostFlathub, ...httpOnly];
+  const apps = mergeBrowseApps([...thirdParty, ...hostFlathub, ...httpApps]);
   return presentFlatpakSearch({
     query,
     host,
@@ -104,32 +104,24 @@ export async function searchFlatpakCatalog(
   });
 }
 
-function enrichFlathubRow(
-  host: CatalogAppSummary,
-  http: CatalogAppSummary
-): CatalogAppSummary {
-  return {
-    ...host,
-    name: http.name || host.name,
-    summary: http.summary || host.summary,
-    iconUrl: http.iconUrl || host.iconUrl,
-    categories: http.categories?.length ? http.categories : host.categories,
-    developerName: http.developerName || host.developerName,
-    sourceLabel: host.sourceLabel || "Flathub",
-    remoteName: host.remoteName || "flathub",
-    origin: host.origin || "flathub",
-    projectLicense: http.projectLicense || host.projectLicense,
-    isFreeLicense: http.isFreeLicense ?? host.isFreeLicense,
-    verificationVerified: http.verificationVerified ?? host.verificationVerified,
-    isEol: http.isEol ?? host.isEol,
-  };
-}
-
 export async function listFlatpakCategory(
   slug: string,
   options: { page?: number; signal?: AbortSignal; refresh?: boolean } = {}
 ): Promise<CatalogSearchResult> {
   const page = options.page ?? 1;
+  const destination = destinationById(slug);
+  if (destination?.kind === "collection" && destination.flathubCollection) {
+    const http = await listFlathubCollection(destination.flathubCollection, options);
+    if (!http.ok) {
+      return http;
+    }
+    return {
+      ...http,
+      query: slug,
+      apps: mergeBrowseApps(http.apps),
+    };
+  }
+  const includeFlathub = slug !== "other";
   const extrasPromise =
     page === 1
       ? listFlatpakCategoryExtras(slug, Boolean(options.refresh)).then(
@@ -142,30 +134,36 @@ export async function listFlatpakCategory(
             }) as CatalogFailure
         )
       : Promise.resolve(emptySearch(slug));
-  const [http, extras] = await Promise.all([
-    listFlathubCategory(slug, options),
-    extrasPromise,
-  ]);
+  const httpPromise = includeFlathub
+    ? listFlathubCategory(slug, options)
+    : Promise.resolve(emptySearch(slug));
+  const [http, extras] = await Promise.all([httpPromise, extrasPromise]);
   const extraApps = extras.ok ? extras.apps : [];
   const warnings = mergeWarnings(
     extras.ok ? extras.warnings : [{ remoteName: "remotes", errorMessage: extras.errorMessage }],
-    http.ok ? undefined : [{ remoteName: "flathub", errorMessage: http.errorMessage }]
+    includeFlathub && !http.ok
+      ? [{ remoteName: "flathub", errorMessage: http.errorMessage }]
+      : undefined
   );
+  if (!includeFlathub) {
+    const apps = mergeBrowseApps(extraApps);
+    return {
+      ok: true,
+      query: slug,
+      apps,
+      totalHits: apps.length,
+      page: 1,
+      totalPages: 1,
+      droppedHitCount: 0,
+      warnings,
+    };
+  }
   if (http.ok) {
-    const apps = page === 1 ? [...extraApps, ...http.apps] : http.apps;
-    const seen = new Set<string>();
-    const deduped = apps.filter((app) => {
-      const key = catalogKey(app);
-      if (seen.has(key)) {
-        return false;
-      }
-      seen.add(key);
-      return true;
-    });
+    const merged = mergeBrowseApps(page === 1 ? [...extraApps, ...http.apps] : http.apps);
     return {
       ...http,
-      apps: deduped,
-      totalHits: http.totalHits + (page === 1 ? extraApps.length : 0),
+      query: slug,
+      apps: merged,
       warnings,
     };
   }
@@ -173,7 +171,7 @@ export async function listFlatpakCategory(
     return {
       ok: true,
       query: slug,
-      apps: extraApps,
+      apps: mergeBrowseApps(extraApps),
       totalHits: extraApps.length,
       page: 1,
       totalPages: 1,

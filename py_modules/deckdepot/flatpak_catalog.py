@@ -15,6 +15,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from deckdepot.categories import slugs_for_tokens
 from deckdepot.diagnostics import log_info
 from deckdepot.errors import EngineError
 from deckdepot.flatpak_engine import (
@@ -35,33 +36,6 @@ REMOTE_LS_COLUMNS = (
     "origin",
     "ref",
 )
-APPSTREAM_MAIN_TO_SLUG = {
-    "Game": "game",
-    "Utility": "utility",
-    "AudioVideo": "audiovideo",
-    "Audio": "audiovideo",
-    "Video": "audiovideo",
-    "Graphics": "graphics",
-    "Network": "network",
-    "Office": "office",
-    "Development": "development",
-}
-APPSTREAM_EXTRA_TO_SLUG = {
-    "ActionGame": "game",
-    "AdventureGame": "game",
-    "ArcadeGame": "game",
-    "BoardGame": "game",
-    "BlocksGame": "game",
-    "CardGame": "game",
-    "Emulator": "game",
-    "KidsGame": "game",
-    "LogicGame": "game",
-    "RolePlaying": "game",
-    "Shooter": "game",
-    "Simulation": "game",
-    "SportsGame": "game",
-    "StrategyGame": "game",
-}
 DEFAULT_ARCH = "x86_64"
 CACHE_TTL_SEC = 300
 APPSTREAM_TTL_SEC = 600
@@ -618,13 +592,7 @@ def _parse_appstream_details(stdout: str) -> dict[str, Any]:
             else:
                 section = None
     description = "\n".join(item for item in description_lines if item is not None).strip()
-    slugs = []
-    seen = set()
-    for category in categories:
-        slug = APPSTREAM_MAIN_TO_SLUG.get(category) or APPSTREAM_EXTRA_TO_SLUG.get(category)
-        if slug and slug not in seen:
-            seen.add(slug)
-            slugs.append(slug)
+    slugs = slugs_for_tokens(categories)
     return {
         "name": name,
         "summary": summary,
@@ -708,7 +676,8 @@ async def _enrich_row(
             row["summary"] = details["summary"]
         if details.get("name"):
             row["name"] = details["name"]
-        row["categories"] = details.get("categories") or row.get("categories") or []
+        row["categoriesKnown"] = True
+        row["categories"] = details.get("categories") or []
         row["nativeCategories"] = details.get("nativeCategories") or []
         row["developerName"] = details.get("developerName")
         row["homepageUrl"] = details.get("homepageUrl")
@@ -792,6 +761,7 @@ async def search_host_catalog(query: str, *, refresh: bool = False) -> dict[str,
                 )
                 if not remote.get("isFlathub"):
                     row = await _enrich_row(row, remote, with_icon=True, refresh=refresh)
+                    row.pop("categoriesKnown", None)
                 apps.append(row)
     return {
         "ok": True,
@@ -870,7 +840,15 @@ async def list_third_party_category(slug: str, *, refresh: bool = False) -> dict
                     origin=item.get("origin"),
                 )
                 row = await _enrich_row(row, remote, with_icon=True, refresh=refresh)
-                if slug not in (row.get("categories") or []):
+                known = bool(row.pop("categoriesKnown", False))
+                categories = row.get("categories") or []
+                # Other is only for apps whose AppStream data parsed and
+                # mapped to none of the known categories. A failed
+                # appstreamcli call must not dump the whole remote here.
+                if slug == "other":
+                    if not known or categories:
+                        continue
+                elif slug not in categories:
                     continue
                 key = row.get("catalogKey") or ""
                 if key in seen:

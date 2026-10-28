@@ -151,6 +151,7 @@ export default function AppTile({
       ) : showSourceChip && app.sourceLabel ? (
         <div style={{ opacity: 0.55, fontSize: "10px", textTransform: "uppercase" }}>
           {app.sourceLabel}
+          {app.installationScope ? ` · ${app.installationScope}` : ""}
           {app.branch && app.branch !== "stable" ? ` · ${app.branch}` : ""}
         </div>
       ) : null}

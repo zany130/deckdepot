@@ -1,7 +1,15 @@
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import { type Tab } from "@decky/ui";
-import { CURATED_CATEGORIES } from "../api/flathubClient";
 import { getCatalogDetails, listProviderCategory, searchProviderCatalog } from "../api/catalogClient";
+import { mergeBrowseApps } from "../api/catalogMerge";
+import {
+  cycleDestination,
+  defaultDestination,
+  destinationById,
+  destinationsFor,
+  isBrowseCacheFresh,
+  resolveDestination,
+} from "../browse/destinations";
 import {
   applyContentFilters,
   ensureContentFiltersLoaded,
@@ -31,7 +39,6 @@ import {
 import { catalogKey, isFlathubSource, ProviderId } from "../types/provider";
 
 const SEARCH_DEBOUNCE_MS = 300;
-const DEFAULT_CATEGORY = CURATED_CATEGORIES[0].slug;
 
 type CachedCategory = {
   apps: CatalogAppSummary[];
@@ -39,6 +46,7 @@ type CachedCategory = {
   totalPages: number;
   totalHits: number;
   warnings: CatalogRemoteWarning[];
+  fetchedAt: number;
 };
 
 const browseCache = new Map<string, CachedCategory>();
@@ -54,7 +62,9 @@ export default function StoreRoute({
 }): ReactElement {
   const inventoryState = useFlatpakInventory();
   const steam = useSteamShortcuts();
-  const [activeCategory, setActiveCategory] = useState<string>(DEFAULT_CATEGORY);
+  const [activeCategory, setActiveCategory] = useState<string>(() => defaultDestination(provider));
+  const activeCategoryRef = useRef(activeCategory);
+  activeCategoryRef.current = activeCategory;
   const [browseApps, setBrowseApps] = useState<CatalogAppSummary[]>([]);
   const [, setBrowseTotalHits] = useState(0);
   const [browsePage, setBrowsePage] = useState(1);
@@ -134,8 +144,11 @@ export default function StoreRoute({
   };
 
   const openCategory = (slug: string, force = false, refresh = false) => {
+    const ttl = destinationById(slug)?.cacheTtlMs ?? 10 * 60 * 1000;
     const cached = browseCache.get(cacheKey(provider, slug));
-    if (cached && !force) {
+    const fresh = Boolean(cached && isBrowseCacheFresh(cached.fetchedAt, Date.now(), ttl));
+    if (cached && fresh && !force) {
+      browseAbortRef.current?.abort();
       applyCategory(slug, cached);
       return;
     }
@@ -145,7 +158,7 @@ export default function StoreRoute({
     setActiveCategory(slug);
     setBrowseError(null);
     setBrowseLoading(true);
-    if (!cached) {
+    if (!cached || !fresh) {
       setBrowseApps([]);
       setBrowsePage(1);
       setBrowseTotalHits(0);
@@ -176,6 +189,7 @@ export default function StoreRoute({
           totalPages: result.totalPages,
           totalHits: result.totalHits,
           warnings: result.warnings || [],
+          fetchedAt: Date.now(),
         };
         browseCache.set(cacheKey(provider, slug), next);
         applyCategory(slug, next);
@@ -197,14 +211,12 @@ export default function StoreRoute({
   };
 
   useEffect(() => {
-    openCategory(DEFAULT_CATEGORY, false, false);
+    openCategory(resolveDestination(provider, activeCategoryRef.current), false, false);
   }, [provider]);
 
   const cycleCategory = (direction: -1 | 1) => {
-    const index = CURATED_CATEGORIES.findIndex((item) => item.slug === activeCategory);
-    const next =
-      (index + direction + CURATED_CATEGORIES.length) % CURATED_CATEGORIES.length;
-    openCategory(CURATED_CATEGORIES[next].slug);
+    const ids = destinationsFor(provider).map((item) => item.id);
+    openCategory(cycleDestination(ids, activeCategory, direction));
   };
 
   const runSearch = (trimmed: string, refresh = false) => {
@@ -306,13 +318,15 @@ export default function StoreRoute({
           return;
         }
         setBrowseApps((current) => {
-          const apps = [...current, ...result.apps];
+          const apps = mergeBrowseApps([...current, ...result.apps]);
+          const existing = browseCache.get(cacheKey(provider, activeCategory));
           browseCache.set(cacheKey(provider, activeCategory), {
             apps,
             page: result.page,
             totalPages: result.totalPages,
             totalHits: result.totalHits,
             warnings: result.warnings || [],
+            fetchedAt: existing?.fetchedAt ?? Date.now(),
           });
           return apps;
         });
@@ -357,7 +371,7 @@ export default function StoreRoute({
           setSearchError(result);
           return;
         }
-        setSearchApps((current) => [...current, ...result.apps]);
+        setSearchApps((current) => mergeBrowseApps([...current, ...result.apps]));
         setSearchTotalHits(result.totalHits);
         setSearchPage(result.page);
         setSearchTotalPages(result.totalPages);
@@ -680,8 +694,9 @@ export default function StoreRoute({
     );
   }
 
-  const activeLabel =
-    CURATED_CATEGORIES.find((item) => item.slug === activeCategory)?.label ?? activeCategory;
+  const activeDestination = destinationById(activeCategory);
+  const activeLabel = activeDestination?.label ?? activeCategory;
+  const sourceNote = activeDestination?.kind === "collection" ? " · Flathub" : "";
 
   const browsePane = (
     <CatalogGrid
@@ -691,7 +706,9 @@ export default function StoreRoute({
       error={browseError}
       warnings={browseWarnings}
       emptyMessage="No matching applications. This is an empty successful query."
-      statusLabel={browseLoading ? activeLabel : `${activeLabel} · ${filteredBrowse.apps.length}`}
+      statusLabel={
+        browseLoading ? activeLabel : `${activeLabel}${sourceNote} · ${filteredBrowse.apps.length}`
+      }
       restoreAppId={restoreBrowseAppId}
       canLoadMore={browsePage < browseTotalPages}
       onOpen={(app) => openDetails(app, false)}
@@ -705,10 +722,10 @@ export default function StoreRoute({
     />
   );
 
-  const tabs: Tab[] = CURATED_CATEGORIES.map((category) => ({
-    id: category.slug,
+  const tabs: Tab[] = destinationsFor(provider).map((category) => ({
+    id: category.id,
     title: category.label,
-    content: category.slug === activeCategory ? browsePane : <div />,
+    content: category.id === activeCategory ? browsePane : <div />,
   }));
 
   return (

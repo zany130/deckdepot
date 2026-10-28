@@ -12,3 +12,4 @@ export const APPMAN_UPDATE_ALL_APP_ID = "all-appman-apps";
 export const FLATHUB_SEARCH_URL = "https://flathub.org/api/v2/search";
 export const FLATHUB_APPSTREAM_URL = "https://flathub.org/api/v2/appstream/";
 export const FLATHUB_CATEGORY_URL = "https://flathub.org/api/v2/collection/category/";
+export const FLATHUB_COLLECTION_URL = "https://flathub.org/api/v2/collection/";
