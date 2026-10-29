@@ -67,6 +67,18 @@ export type AppManLaunchSpec =
       errorMessage: string;
     };
 
+export interface AppmanUpdateChange {
+  appId: string;
+  previousVersion: string;
+  currentVersion: string;
+  note?: string;
+}
+
+export interface AppmanUpdateReport {
+  known: boolean;
+  changed: AppmanUpdateChange[];
+}
+
 export interface TaskProgress {
   taskId: string;
   provider: ProviderId;
@@ -92,6 +104,7 @@ export interface TaskProgress {
     present: boolean;
     appCount: number;
   } | null;
+  updateReport?: AppmanUpdateReport;
 }
 
 export interface EngineErrorResult {

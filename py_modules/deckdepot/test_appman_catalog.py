@@ -2,8 +2,20 @@
 
 from __future__ import annotations
 
+import sys
+import types
 import unittest
 
+if "decky" not in sys.modules:
+    decky = types.ModuleType("decky")
+    decky.logger = types.SimpleNamespace(
+        info=lambda *_args, **_kwargs: None,
+        error=lambda *_args, **_kwargs: None,
+        warning=lambda *_args, **_kwargs: None,
+    )
+    sys.modules["decky"] = decky
+
+from deckdepot.appman_engine import parse_update_all_report
 from deckdepot.appman_ids import SOURCE_FLAGS, source_from_text, source_mutation_args
 from deckdepot.appman_taxonomy import (
     PAGE_SIZE,
@@ -170,6 +182,49 @@ class AppmanTaxonomyTests(unittest.TestCase):
         self.assertEqual(source_from_text("Install with --amutils or .amutils"), "amutils")
         with self.assertRaises(EngineError):
             normalize_format_filter("appimage-on-the-fly")
+
+
+class AppmanUpdateReportTests(unittest.TestCase):
+    def test_nothing_changed(self) -> None:
+        report = parse_update_all_report(
+            "RPCS3 is updated, 1 second elapsed!\n Nothing to do here! \n"
+        )
+        self.assertEqual(report, {"known": True, "changed": []})
+
+    def test_version_table(self) -> None:
+        stdout = """
+ RPCS3 is updated, 4 seconds elapsed!
+ The following apps have been updated:
+
+     App  Previous  Current
+
+ 1.  rpcs3  v1  v2
+ 2.  probe  old  new  (checksum changed)
+"""
+        report = parse_update_all_report(stdout)
+        self.assertTrue(report["known"])
+        self.assertEqual(
+            report["changed"],
+            [
+                {
+                    "appId": "rpcs3",
+                    "previousVersion": "v1",
+                    "currentVersion": "v2",
+                    "note": "",
+                },
+                {
+                    "appId": "probe",
+                    "previousVersion": "old",
+                    "currentVersion": "new",
+                    "note": "(checksum changed)",
+                },
+            ],
+        )
+
+    def test_missing_summary_is_unknown(self) -> None:
+        report = parse_update_all_report("RPCS3 is updated, 2 seconds elapsed!\n")
+        self.assertEqual(report["known"], False)
+        self.assertEqual(report["changed"], [])
 
 
 if __name__ == "__main__":

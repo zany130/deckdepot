@@ -17,6 +17,7 @@ from deckdepot.appman_engine import (
     APPMAN_UPDATE_ALL_APP_ID,
     MUTATION_TIMEOUT_SEC as APPMAN_TIMEOUT_SEC,
     interpret_result as interpret_appman_result,
+    parse_update_all_report,
     list_installed as list_appman_installed,
     require_installed as require_appman_installed,
     spawn_mutation as spawn_appman_mutation,
@@ -497,6 +498,8 @@ class TaskManager:
         timeout: int,
     ) -> None:
         marker_ok, detail = interpret_appman_result(task["operation"], stdout, stderr)
+        if task.get("operation") == "update_all":
+            task["updateReport"] = parse_update_all_report(stdout)
         output = redact_text(detail or f"{stderr}\n{stdout}".strip() or "AppMan command failed")
         if task.get("timedOut"):
             self._set_phase(

@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.0.0
+
+- Browse Trending and the main Flathub categories on the Flatpak bar. New Arrivals, Recently Updated, Popular, and the remaining categories, including AI and Finance, are in All Categories
+- Merge third-party Flatpak remotes into category browse. The same app from the same remote in user and system scope stays one tile
+- Load Flatpark's AI section with Decky's certificate helper. AI is not an AppStream category; membership comes from flatpark.org
+- Browse every AppMan database the installed CLI can install, including AM utils, BusyBox, Coreutils, Python, AppBundle, and Soar when those modules are enabled
+- Add AppMan categories for Emulators, GNOME, KDE, Metapackages, and Wine, plus an All Categories index. Category browse is paginated and is not limited to the first 40 results
+- Keep AppMan install, update, and uninstall flags specific to the database that owns the app
+- Show the AppMan Update All result from AppMan's version comparison. Apps that were already current are not reported as updated
+- Show the remote error text when a catalog source fails to load
+
 ## 1.1.0
 
 - Discover, search, and install from already-configured enumeratable Flatpak remotes, not only Flathub

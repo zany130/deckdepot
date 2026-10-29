@@ -114,7 +114,7 @@ export default function UpdatesRoute(): ReactElement {
   const requestAppmanUpdateAll = async () => {
     const confirmed = await confirmAction(
       "Run all AppMan updaters?",
-      "AppMan will check and update every installed app that has an AM-updater (`appman -y -u --apps`). DeckDepot cannot know in advance which apps actually have a newer version. This does not update Flatpaks or AppMan itself."
+      "AppMan will run every installed updater (`appman -y -u --apps`). DeckDepot cannot know in advance which apps have a newer version. After it finishes, the result lists only the apps whose version changed. This does not update Flatpaks or AppMan itself."
     );
     if (!confirmed) {
       return;
@@ -160,6 +160,25 @@ export default function UpdatesRoute(): ReactElement {
         </Focusable>
       ) : state.task?.errorMessage && !isActivePhase(state.task.phase) ? (
         <div style={{ color: "#ff8a8a" }}>{state.task.errorMessage}</div>
+      ) : null}
+      {provider === "appman" &&
+      state.task?.phase === "completed" &&
+      state.task.updateReport?.known ? (
+        <div style={{ fontSize: "14px" }}>
+          {state.task.updateReport.changed.length === 0 ? (
+            <div>No AppMan apps needed an update.</div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+              <div style={{ fontWeight: 650 }}>Version changed</div>
+              {state.task.updateReport.changed.map((item) => (
+                <div key={item.appId}>
+                  {item.appId}: {item.previousVersion} → {item.currentVersion}
+                  {item.note ? ` ${item.note}` : ""}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       ) : null}
 
       {provider === "flatpak" ? (
@@ -288,8 +307,8 @@ export default function UpdatesRoute(): ReactElement {
           <div>
             <div style={{ fontSize: "16px", fontWeight: 650 }}>Apps with AppMan updater support</div>
             <div style={{ opacity: 0.8, fontSize: "13px", marginTop: "4px" }}>
-              AppMan does not report which of these already have a newer version. Update
-              runs that app's AM-updater after you confirm.
+              AppMan does not say which of these already have a newer version. Update
+              All runs every updater, then lists the apps whose version changed.
             </div>
           </div>
           {appmanBannerError ? (

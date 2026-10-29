@@ -162,7 +162,11 @@ export default function CatalogGrid({
           <div>
             {warningMessage ||
               (warnings || [])
-                .map((item) => `Could not load ${item.remoteName}`)
+                .map((item) =>
+                  item.errorMessage
+                    ? `${item.remoteName}: ${item.errorMessage}`
+                    : `Could not load ${item.remoteName}`
+                )
                 .join(" · ")}
           </div>
           {warningMessage && failedSourceLabels && failedSourceLabels.length > 0 ? (

@@ -1,12 +1,6 @@
-import { TaskProgress } from "../types/flatpak";
-import {
-  OperationKind,
-  OperationStage,
-  OperationView,
-  isLiveStage,
-  kindFromTask,
-  stageFromTask,
-} from "../types/operation";
+import type { AppmanUpdateReport, TaskProgress } from "../types/flatpak";
+import type { OperationKind, OperationStage, OperationView } from "../types/operation";
+import { isLiveStage, kindFromTask, stageFromTask } from "../types/operation";
 
 export function operationLabel(
   kind: OperationKind,
@@ -55,6 +49,29 @@ export function operationLabel(
   }
 }
 
+export function appmanUpdateAllSuccess(
+  report: AppmanUpdateReport | undefined,
+  batchCount?: number
+): string {
+  if (!report?.known) {
+    if (batchCount && batchCount > 0) {
+      return `AppMan checked ${batchCount} apps`;
+    }
+    return "AppMan updaters finished";
+  }
+  const names = report.changed.map((item) => item.appId).filter(Boolean);
+  if (names.length === 0) {
+    return "No AppMan apps needed an update";
+  }
+  if (names.length === 1) {
+    return `Updated ${names[0]}`;
+  }
+  if (names.length <= 3) {
+    return `Updated ${names.join(", ")}`;
+  }
+  return `Updated ${names.length} AppMan apps`;
+}
+
 export function successToast(kind: OperationKind, name: string, batchCount?: number): string {
   if (kind === "install") {
     return `Installed ${name}`;
@@ -69,6 +86,9 @@ export function successToast(kind: OperationKind, name: string, batchCount?: num
     return `Removed ${name} from Steam`;
   }
   if (kind === "update_all") {
+    if (name === "AppMan apps") {
+      return "AppMan updaters finished";
+    }
     if (batchCount && batchCount > 0) {
       return `Updated ${batchCount} ${name}`;
     }
@@ -106,12 +126,22 @@ export function viewFromTask(
         ? "AppMan apps"
         : "Flatpak apps"
       : name;
-  const label = operationLabel(kind, stage, batchName, batchCount);
+  const appmanReport = task.provider === "appman" ? task.updateReport : undefined;
+  const label =
+    kind === "update_all" && stage === "success" && task.provider === "appman"
+      ? appmanUpdateAllSuccess(appmanReport, batchCount)
+      : operationLabel(kind, stage, batchName, batchCount);
+  const toast =
+    stage === "failed"
+      ? failureToast(kind, batchName)
+      : kind === "update_all" && task.provider === "appman"
+        ? appmanUpdateAllSuccess(appmanReport, batchCount)
+        : successToast(kind, batchName, batchCount);
   return {
     kind,
     stage,
     label,
-    toast: stage === "failed" ? failureToast(kind, batchName) : successToast(kind, batchName, batchCount),
+    toast,
     progressKind: task.progressKind === "fraction" && typeof task.progressPercent === "number"
       ? "fraction"
       : "indeterminate",

@@ -1,13 +1,13 @@
 {
   "name": "deckdepot",
-  "version": "1.1.0",
+  "version": "2.0.0",
   "description": "Browse, install, update, and manage Flatpaks and optional AppMan apps from Steam Gaming Mode. Add to Steam is optional; Steam launches the app.",
   "type": "module",
   "scripts": {
     "build": "rollup -c",
     "watch": "rollup -c -w",
     "package": "bash scripts/package.sh",
-    "test": "node --experimental-strip-types --import ./scripts/node-test-register.mjs --test src/browse/destinations.test.ts src/api/catalogMerge.test.ts && PYTHONPATH=py_modules python3 -m unittest deckdepot.test_categories deckdepot.test_appman_catalog"
+    "test": "node --experimental-strip-types --import ./scripts/node-test-register.mjs --test src/browse/destinations.test.ts src/api/catalogMerge.test.ts src/api/operationState.test.ts && PYTHONPATH=py_modules python3 -m unittest deckdepot.test_categories deckdepot.test_appman_catalog"
   },
   "keywords": [
     "decky",

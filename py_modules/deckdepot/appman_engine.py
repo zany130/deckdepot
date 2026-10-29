@@ -1079,6 +1079,45 @@ async def spawn_mutation(
     )
 
 
+def parse_update_all_report(stdout: str) -> dict[str, Any]:
+    """Read AppMan's end-of-run version diff from ``appman -u --apps``.
+
+    Per-app lines say "is updated" even when the version did not change.
+    The summary after the updaters is the version comparison: "Nothing to do
+    here!" or a table of apps whose recorded version changed.
+    """
+    text = _strip_ansi(stdout or "")
+    if "The following apps have been updated" in text:
+        changed: list[dict[str, str]] = []
+        in_table = False
+        for line in text.splitlines():
+            if "The following apps have been updated" in line:
+                in_table = True
+                continue
+            if not in_table:
+                continue
+            match = re.match(
+                r"^\s*\d+\.\s+(\S+)\s+(\S+)\s+(\S+)(?:\s+(\S.*?))?\s*$",
+                line,
+            )
+            if not match:
+                continue
+            changed.append(
+                {
+                    "appId": match.group(1),
+                    "previousVersion": match.group(2),
+                    "currentVersion": match.group(3),
+                    "note": (match.group(4) or "").strip(),
+                }
+            )
+        if changed:
+            return {"known": True, "changed": changed}
+        return {"known": False, "changed": []}
+    if "Nothing to do here" in text or "No apps to update here" in text:
+        return {"known": True, "changed": []}
+    return {"known": False, "changed": []}
+
+
 def interpret_result(operation: str, stdout: str, stderr: str) -> tuple[bool, str]:
     blob = f"{stdout}\n{stderr}"
     upper = blob.upper()
